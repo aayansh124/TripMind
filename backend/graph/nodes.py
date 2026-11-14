@@ -1,7 +1,8 @@
+
 """Node implementations for LangGraph orchestration."""
 
-import time
-from typing import Any, Dict, List
+from typing import Any
+
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from backend.agents.destination_agent import run_destination_agent
@@ -27,12 +28,13 @@ from backend.prompts.agent_prompts import CHAT_AGENT_PROMPT
 from backend.utils.logger import logger
 
 
-async def destination_node(state: TravelState) -> Dict[str, Any]:
-    """Execute Destination Agent."""
-    start = time.time()
-    logger.info("Executing Graph Node: destination_node")
+async def destination_node(state: TravelState) -> dict[str, Any]:
+    """Execute the destination research agent."""
+
+    logger.info("Executing destination node.")
+
     try:
-        res = await run_destination_agent(
+        result = await run_destination_agent(
             origin=state["origin"],
             destination=state["destination"],
             departure_date=state["departure_date"],
@@ -42,101 +44,150 @@ async def destination_node(state: TravelState) -> Dict[str, Any]:
             travel_style=state["travel_style"],
             preferences=state.get("travel_preferences"),
         )
+
         return {
-            "destination_results": res.model_dump(),
-            "execution_status": {"destination_agent": res.status.value},
-            "errors": [res.error] if res.error else [],
+            "destination_results": result.model_dump(mode="json"),
+            "execution_status": {
+                "destination_agent": result.status.value,
+            },
+            "errors": [result.error] if result.error else [],
         }
-    except Exception as e:
-        logger.exception("destination_node encountered error: %s", e)
+
+    except Exception as exc:
+        logger.exception("Destination node failed.")
+
         return {
             "execution_status": {"destination_agent": "failed"},
-            "errors": [f"Destination agent node error: {str(e)}"],
+            "errors": [f"Destination agent node error: {exc}"],
         }
 
 
-async def flight_node(state: TravelState) -> Dict[str, Any]:
-    """Execute Flight Agent."""
-    logger.info("Executing Graph Node: flight_node")
+async def flight_node(state: TravelState) -> dict[str, Any]:
+    """Execute the flight search agent."""
+
+    logger.info("Executing flight node.")
+
     try:
-        res = await run_flight_agent(
+        result = await run_flight_agent(
             origin=state["origin"],
             destination=state["destination"],
             departure_date=state["departure_date"],
             return_date=state["return_date"],
         )
+
         return {
-            "flight_results": res.model_dump(),
-            "execution_status": {"flight_agent": res.status.value},
-            "errors": [res.error] if res.error else [],
+            "flight_results": result.model_dump(mode="json"),
+            "execution_status": {
+                "flight_agent": result.status.value,
+            },
+            "errors": [result.error] if result.error else [],
         }
-    except Exception as e:
-        logger.exception("flight_node encountered error: %s", e)
+
+    except Exception as exc:
+        logger.exception("Flight node failed.")
+
         return {
             "execution_status": {"flight_agent": "failed"},
-            "errors": [f"Flight agent node error: {str(e)}"],
+            "errors": [f"Flight agent node error: {exc}"],
         }
 
 
-async def hotel_node(state: TravelState) -> Dict[str, Any]:
-    """Execute Hotel Agent."""
-    logger.info("Executing Graph Node: hotel_node")
+async def hotel_node(state: TravelState) -> dict[str, Any]:
+    """Execute the hotel recommendation agent."""
+
+    logger.info("Executing hotel node.")
+
     try:
-        res = await run_hotel_agent(
+        result = await run_hotel_agent(
             destination=state["destination"],
             budget=state["budget"],
             currency=state["currency"],
             travellers=state["travellers"],
             travel_style=state["travel_style"],
-            accommodation_preference=state.get("accommodation_preference"),
+            accommodation_preference=state.get(
+                "accommodation_preference"
+            ),
             departure_date=state["departure_date"],
             return_date=state["return_date"],
         )
+
         return {
-            "hotel_results": res.model_dump(),
-            "execution_status": {"hotel_agent": res.status.value},
-            "errors": [res.error] if res.error else [],
+            "hotel_results": result.model_dump(mode="json"),
+            "execution_status": {
+                "hotel_agent": result.status.value,
+            },
+            "errors": [result.error] if result.error else [],
         }
-    except Exception as e:
-        logger.exception("hotel_node encountered error: %s", e)
+
+    except Exception as exc:
+        logger.exception("Hotel node failed.")
+
         return {
             "execution_status": {"hotel_agent": "failed"},
-            "errors": [f"Hotel agent node error: {str(e)}"],
+            "errors": [f"Hotel agent node error: {exc}"],
         }
 
 
-async def weather_node(state: TravelState) -> Dict[str, Any]:
-    """Execute Weather Agent."""
-    logger.info("Executing Graph Node: weather_node")
+async def weather_node(state: TravelState) -> dict[str, Any]:
+    """Execute the destination weather agent."""
+
+    logger.info("Executing weather node.")
+
     try:
-        res = await run_weather_agent(
+        result = await run_weather_agent(
             destination=state["destination"],
             departure_date=state["departure_date"],
             return_date=state["return_date"],
         )
+
         return {
-            "weather_results": res.model_dump(),
-            "execution_status": {"weather_agent": res.status.value},
-            "errors": [res.error] if res.error else [],
+            "weather_results": result.model_dump(mode="json"),
+            "execution_status": {
+                "weather_agent": result.status.value,
+            },
+            "errors": [result.error] if result.error else [],
         }
-    except Exception as e:
-        logger.exception("weather_node encountered error: %s", e)
+
+    except Exception as exc:
+        logger.exception("Weather node failed.")
+
         return {
             "execution_status": {"weather_agent": "failed"},
-            "errors": [f"Weather agent node error: {str(e)}"],
+            "errors": [f"Weather agent node error: {exc}"],
         }
 
 
-async def itinerary_node(state: TravelState) -> Dict[str, Any]:
-    """Execute Itinerary Agent after parallel upstream research completes."""
-    logger.info("Executing Graph Node: itinerary_node")
-    try:
-        dest_res = DestinationResult.model_validate(state["destination_results"]) if state.get("destination_results") else None
-        flight_res = FlightResult.model_validate(state["flight_results"]) if state.get("flight_results") else None
-        hotel_res = HotelResult.model_validate(state["hotel_results"]) if state.get("hotel_results") else None
-        weather_res = WeatherResult.model_validate(state["weather_results"]) if state.get("weather_results") else None
+async def itinerary_node(state: TravelState) -> dict[str, Any]:
+    """Generate the itinerary using specialist agent results."""
 
-        res = await run_itinerary_agent(
+    logger.info("Executing itinerary node.")
+
+    try:
+        destination_result = (
+            DestinationResult.model_validate(state["destination_results"])
+            if state.get("destination_results")
+            else None
+        )
+
+        flight_result = (
+            FlightResult.model_validate(state["flight_results"])
+            if state.get("flight_results")
+            else None
+        )
+
+        hotel_result = (
+            HotelResult.model_validate(state["hotel_results"])
+            if state.get("hotel_results")
+            else None
+        )
+
+        weather_result = (
+            WeatherResult.model_validate(state["weather_results"])
+            if state.get("weather_results")
+            else None
+        )
+
+        result = await run_itinerary_agent(
             origin=state["origin"],
             destination=state["destination"],
             departure_date=state["departure_date"],
@@ -146,41 +197,70 @@ async def itinerary_node(state: TravelState) -> Dict[str, Any]:
             budget=state["budget"],
             currency=state["currency"],
             travel_style=state["travel_style"],
-            destination_res=dest_res,
-            flight_res=flight_res,
-            hotel_res=hotel_res,
-            weather_res=weather_res,
+            destination_res=destination_result,
+            flight_res=flight_result,
+            hotel_res=hotel_result,
+            weather_res=weather_result,
         )
+
         return {
-            "itinerary_results": res.model_dump(),
-            "execution_status": {"itinerary_agent": res.status.value},
-            "errors": [res.error] if res.error else [],
+            "itinerary_results": result.model_dump(mode="json"),
+            "execution_status": {
+                "itinerary_agent": result.status.value,
+            },
+            "errors": [result.error] if result.error else [],
         }
-    except Exception as e:
-        logger.exception("itinerary_node encountered error: %s", e)
+
+    except Exception as exc:
+        logger.exception("Itinerary node failed.")
+
         return {
             "execution_status": {"itinerary_agent": "failed"},
-            "errors": [f"Itinerary agent node error: {str(e)}"],
+            "errors": [f"Itinerary agent node error: {exc}"],
         }
 
 
-async def response_node(state: TravelState) -> Dict[str, Any]:
-    """Execute Response Agent to reconcile budget and assemble final TravelPlan."""
-    logger.info("Executing Graph Node: response_node")
+async def response_node(state: TravelState) -> dict[str, Any]:
+    """Assemble the final travel plan and calculate its budget."""
+
+    logger.info("Executing response node.")
+
     try:
-        dest_res = DestinationResult.model_validate(state["destination_results"]) if state.get("destination_results") else None
-        flight_res = FlightResult.model_validate(state["flight_results"]) if state.get("flight_results") else None
-        hotel_res = HotelResult.model_validate(state["hotel_results"]) if state.get("hotel_results") else None
-        weather_res = WeatherResult.model_validate(state["weather_results"]) if state.get("weather_results") else None
+        destination_result = (
+            DestinationResult.model_validate(state["destination_results"])
+            if state.get("destination_results")
+            else None
+        )
 
-        itinerary_items: List[DailyItinerary] = []
+        flight_result = (
+            FlightResult.model_validate(state["flight_results"])
+            if state.get("flight_results")
+            else None
+        )
+
+        hotel_result = (
+            HotelResult.model_validate(state["hotel_results"])
+            if state.get("hotel_results")
+            else None
+        )
+
+        weather_result = (
+            WeatherResult.model_validate(state["weather_results"])
+            if state.get("weather_results")
+            else None
+        )
+
+        itinerary_items = []
+
         if state.get("itinerary_results"):
-            itin_data = state["itinerary_results"].get("data", [])
-            for item in itin_data:
-                itinerary_items.append(DailyItinerary.model_validate(item))
+            itinerary_data = state["itinerary_results"].get("data", [])
 
-        # Reconstruct TravelRequest object
-        req = TravelRequest(
+            itinerary_items = [
+                DailyItinerary.model_validate(item)
+                for item in itinerary_data
+            ]
+
+        request = TravelRequest(
             origin=state["origin"],
             destination=state["destination"],
             departure_date=state["departure_date"],
@@ -189,73 +269,100 @@ async def response_node(state: TravelState) -> Dict[str, Any]:
             budget=state["budget"],
             currency=state["currency"],
             travel_preferences=state.get("travel_preferences"),
-            accommodation_preference=state.get("accommodation_preference"),
+            accommodation_preference=state.get(
+                "accommodation_preference"
+            ),
             travel_style=TravelStyle(state["travel_style"]),
         )
 
         plan = await run_response_agent(
             trip_id=state["trip_id"],
-            request=req,
+            request=request,
             duration_days=state["duration_days"],
-            destination_res=dest_res,
-            flight_res=flight_res,
-            hotel_res=hotel_res,
-            weather_res=weather_res,
+            destination_res=destination_result,
+            flight_res=flight_result,
+            hotel_res=hotel_result,
+            weather_res=weather_result,
             itinerary_days=itinerary_items,
         )
 
         return {
-            "final_plan": plan.model_dump(),
-            "execution_status": {"response_agent": plan.execution_status.value},
+            "final_plan": plan.model_dump(mode="json"),
+            "execution_status": {
+                "response_agent": plan.execution_status.value,
+            },
         }
-    except Exception as e:
-        logger.exception("response_node encountered error: %s", e)
+
+    except Exception as exc:
+        logger.exception("Response node failed.")
+
         return {
             "execution_status": {"response_agent": "failed"},
-            "errors": [f"Response agent node error: {str(e)}"],
+            "errors": [f"Response agent node error: {exc}"],
         }
 
 
-async def chat_node(state: TravelState) -> Dict[str, Any]:
-    """Handle conversational turn maintaining thread continuity."""
-    logger.info("Executing Graph Node: chat_node for thread_id=%s", state.get("thread_id"))
-    messages = state.get("messages", [])
-    user_msg = messages[-1].content if messages else "Hello"
+async def chat_node(state: TravelState) -> dict[str, Any]:
+    """Handle conversational turns using the saved conversation context."""
 
-    trip_context_str = "No specific trip loaded."
+    thread_id = state.get("thread_id", "")
+    logger.info("Executing chat node for thread_id=%s", thread_id)
+
+    messages = state.get("messages", [])
+    user_message = messages[-1].content if messages else "Hello"
+
+    trip_context = "No specific trip loaded."
+
     if state.get("final_plan"):
-        fp = state["final_plan"]
-        trip_context_str = (
-            f"Trip to {fp.get('destination')} from {fp.get('origin')} "
-            f"({fp.get('departure_date')} to {fp.get('return_date')}). "
-            f"Budget: {fp.get('budget', {}).get('amount')} {fp.get('budget', {}).get('currency')}. "
-            f"Style: {fp.get('travel_style')}."
+        plan = state["final_plan"]
+        budget = plan.get("budget", {})
+
+        trip_context = (
+            f"Trip to {plan.get('destination')} from "
+            f"{plan.get('origin')} "
+            f"({plan.get('departure_date')} to {plan.get('return_date')}). "
+            f"Budget: {budget.get('amount')} {budget.get('currency')}. "
+            f"Style: {plan.get('travel_style')}."
         )
 
-    history_str = "\n".join([f"{m.type}: {m.content}" for m in messages[:-1]])
+    history = "\n".join(
+        f"{message.type}: {message.content}"
+        for message in messages[:-1]
+    )
 
     prompt = CHAT_AGENT_PROMPT.format(
-        trip_context=trip_context_str,
-        history=history_str or "No previous history.",
-        user_message=user_msg,
+        trip_context=trip_context,
+        history=history or "No previous history.",
+        user_message=user_message,
     )
 
     try:
         llm = get_gemini_client(temperature=0.5)
-        response = await llm.ainvoke([
-            SystemMessage(content=prompt),
-            HumanMessage(content=user_msg),
-        ])
-        return {
-            "messages": [AIMessage(content=str(response.content))],
-        }
-    except Exception as e:
-        logger.warning("chat_node LLM error: %s", e)
-        fallback_reply = (
-            f"I have received your request regarding {trip_context_str}. "
-            "Please check back shortly or let me know if you would like me to adjust your activities, hotel recommendations, or budget."
+
+        response = await llm.ainvoke(
+            [
+                SystemMessage(content=prompt),
+                HumanMessage(content=user_message),
+            ]
         )
+
         return {
-            "messages": [AIMessage(content=fallback_reply)],
+            "messages": [
+                AIMessage(content=str(response.content))
+            ],
         }
 
+    except Exception:
+        logger.exception("Chat node failed.")
+
+        fallback_reply = (
+            f"I have received your request regarding {trip_context}. "
+            "Please try again shortly or let me know if you would like "
+            "to adjust your activities, hotel recommendations, or budget."
+        )
+
+        return {
+            "messages": [
+                AIMessage(content=fallback_reply)
+            ],
+        }

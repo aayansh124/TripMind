@@ -1,9 +1,10 @@
-"""Itinerary Specialist Agent."""
+
+"""Itinerary specialist agent."""
 
 import time
-from typing import List, Optional
+
 from pydantic import BaseModel, Field
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from backend.api.schemas.travel import (
     AgentStatus,
@@ -20,8 +21,9 @@ from backend.utils.logger import logger
 
 
 class ItineraryWrapper(BaseModel):
-    """Pydantic model for structured itinerary output from LLM."""
-    days: List[DailyItinerary] = Field(default_factory=list)
+    """Structured output schema for daily itinerary generation."""
+
+    days: list[DailyItinerary] = Field(default_factory=list)
 
 
 async def run_itinerary_agent(
@@ -34,38 +36,61 @@ async def run_itinerary_agent(
     budget: float,
     currency: str,
     travel_style: str,
-    destination_res: Optional[DestinationResult] = None,
-    flight_res: Optional[FlightResult] = None,
-    hotel_res: Optional[HotelResult] = None,
-    weather_res: Optional[WeatherResult] = None,
+    destination_res: DestinationResult | None = None,
+    flight_res: FlightResult | None = None,
+    hotel_res: HotelResult | None = None,
+    weather_res: WeatherResult | None = None,
 ) -> ItineraryResult:
-    """Synthesize upstream agent research into a daily itinerary.
+    """Generate a daily itinerary using specialist agent research."""
 
-    Returns:
-        Structured ItineraryResult.
-    """
-    start_time = time.time()
-    logger.info("Itinerary Agent started for %d days in %s", duration_days, destination)
+    start_time = time.perf_counter()
 
-    # 1. Summarize upstream inputs
-    dest_summary = "Explore historical centers, regional cuisine, and top monuments."
+    logger.info(
+        "Itinerary Agent started for %d days in %s",
+        duration_days,
+        destination,
+    )
+
+    # Prepare destination research summary.
+    destination_summary = (
+        "Explore historical centers, regional cuisine, and major monuments."
+    )
+
     if destination_res and destination_res.data:
-        dest_summary = f"Overview: {destination_res.data.overview}\nHighlights: {', '.join(destination_res.data.highlights[:5])}"
+        destination_summary = (
+            f"Overview: {destination_res.data.overview}\n"
+            f"Highlights: {', '.join(destination_res.data.highlights[:5])}"
+        )
 
-    hotel_summary = "Accommodations in central city area."
+    # Prepare accommodation summary.
+    hotel_summary = "Accommodation options in the central city area."
+
     if hotel_res and hotel_res.data:
-        hotel_names = [h.hotel_name for h in hotel_res.data[:3]]
-        hotel_summary = f"Suggested bases: {', '.join(hotel_names)}"
+        hotel_names = [
+            hotel.hotel_name
+            for hotel in hotel_res.data[:3]
+        ]
+        hotel_summary = f"Suggested accommodation: {', '.join(hotel_names)}"
 
-    weather_summary = "Standard seasonal conditions."
+    # Prepare weather summary.
+    weather_summary = "No verified weather information available."
+
     if weather_res and weather_res.data:
-        weather_summary = f"Temp: {weather_res.data.temperature_celsius}°C, Condition: {weather_res.data.condition}"
+        weather_summary = (
+            f"Temperature: {weather_res.data.temperature_celsius}°C, "
+            f"Condition: {weather_res.data.condition}, "
+            f"Forecast: {weather_res.data.forecast_summary}"
+        )
 
-    flight_summary = "Flight timetable scheduled."
+    # Prepare flight summary.
+    flight_summary = "No verified flight schedule information available."
+
     if flight_res and flight_res.data:
-        flight_summary = f"{len(flight_res.data)} flight schedules available from {origin} to {destination}."
+        flight_summary = (
+            f"{len(flight_res.data)} flight schedules retrieved "
+            f"for {origin} to {destination}."
+        )
 
-    # 2. Invoke Gemini for day-wise itinerary generation
     try:
         formatted_prompt = ITINERARY_AGENT_PROMPT.format(
             origin=origin,
@@ -77,29 +102,54 @@ async def run_itinerary_agent(
             budget=budget,
             currency=currency,
             travel_style=travel_style,
-            destination_summary=dest_summary,
+            destination_summary=destination_summary,
             hotel_summary=hotel_summary,
             weather_summary=weather_summary,
             flight_summary=flight_summary,
         )
 
         structured_llm = get_structured_llm(ItineraryWrapper)
-        result: ItineraryWrapper = await structured_llm.ainvoke([
-            SystemMessage(content=formatted_prompt),
-            HumanMessage(content=f"Create a balanced {duration_days}-day itinerary for {destination}."),
-        ])
+
+        result: ItineraryWrapper = await structured_llm.ainvoke(
+            [
+                SystemMessage(content=formatted_prompt),
+                HumanMessage(
+                    content=(
+                        f"Create a balanced {duration_days}-day itinerary "
+                        f"for {destination}. Provide realistic activity cost "
+                        f"estimates in {currency}. Cost estimates must cover "
+                        f"all {travellers} traveler(s) combined. "
+                        "Do not invent confirmed prices."
+                    )
+                ),
+            ]
+        )
 
         days = result.days
 
-        # Ensure daily total consistency
-        for d in days:
-            if d.daily_total == 0.0:
-                d.daily_total = round(
-                    d.estimated_transport_cost + d.estimated_food_cost + d.estimated_activity_cost, 2
-                )
+        # Ensure the generated itinerary covers the requested duration.
+        if len(days) != duration_days:
+            raise ValueError(
+                f"Expected {duration_days} itinerary days, "
+                f"but Gemini returned {len(days)}."
+            )
 
-        elapsed = time.time() - start_time
-        logger.info("Itinerary Agent completed in %.2fs with %d days planned", elapsed, len(days))
+        # Recalculate daily totals using deterministic arithmetic.
+        for day in days:
+            day.daily_total = round(
+                day.estimated_transport_cost
+                + day.estimated_food_cost
+                + day.estimated_activity_cost,
+                2,
+            )
+
+        elapsed = time.perf_counter() - start_time
+
+        logger.info(
+            "Itinerary Agent completed in %.2f seconds with %d days",
+            elapsed,
+            len(days),
+        )
 
         return ItineraryResult(
             status=AgentStatus.SUCCESS,
@@ -107,37 +157,50 @@ async def run_itinerary_agent(
             source="Gemini Itinerary Synthesis",
         )
 
-    except Exception as e:
-        logger.warning("Itinerary Agent LLM call encountered error: %s. Generating robust procedural fallback.", e)
-        # Fallback procedural generation if LLM is unavailable or unconfigured
+    except Exception as exc:
+        logger.exception(
+            "Itinerary generation failed; using procedural fallback"
+        )
+
+        # Generate a basic itinerary when structured generation fails.
         fallback_days = []
-        for i in range(1, duration_days + 1):
-            day_cost = round((budget * 0.4) / duration_days, 2)
+
+        for day_number in range(1, duration_days + 1):
             fallback_days.append(
                 DailyItinerary(
-                    day=i,
+                    day=day_number,
                     date=None,
                     morning=[
-                        f"Day {i} Morning: Explore key landmarks and architectural walking tour in central {destination}."
+                        f"Explore important landmarks in central {destination}."
                     ],
                     afternoon=[
-                        f"Day {i} Afternoon: Visit primary cultural district, museum, or market followed by regional lunch."
+                        f"Visit a cultural district or local market in {destination}.",
+                        "Enjoy regional cuisine.",
                     ],
                     evening=[
-                        f"Day {i} Evening: Leisure walk along prominent avenue, scenic dinner, and local relaxation."
+                        f"Explore a scenic area of {destination} and enjoy dinner."
                     ],
-                    places_to_visit=[f"District {i} Highlights", f"{destination} Scenic Center"],
-                    estimated_transport_cost=round(day_cost * 0.2, 2),
-                    estimated_food_cost=round(day_cost * 0.5, 2),
-                    estimated_activity_cost=round(day_cost * 0.3, 2),
-                    daily_total=day_cost,
+                    places_to_visit=[
+                        f"Major landmarks in {destination}",
+                        f"Local attractions in {destination}",
+                    ],
+                    estimated_transport_cost=0.0,
+                    estimated_food_cost=0.0,
+                    estimated_activity_cost=0.0,
+                    daily_total=0.0,
                 )
             )
+
+        elapsed = time.perf_counter() - start_time
+
+        logger.warning(
+            "Procedural itinerary generated in %.2f seconds",
+            elapsed,
+        )
 
         return ItineraryResult(
             status=AgentStatus.PARTIAL,
             data=fallback_days,
             source="Procedural Itinerary Synthesis",
-            error=str(e),
+            error=str(exc),
         )
-

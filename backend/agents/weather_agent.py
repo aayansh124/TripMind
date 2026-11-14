@@ -1,8 +1,10 @@
-"""Weather Specialist Agent."""
 
+"""Weather specialist agent."""
+
+import asyncio
 import time
-from datetime import datetime, date
-from typing import List, Optional
+from datetime import date, datetime
+
 from backend.api.schemas.travel import (
     AgentStatus,
     WeatherInformation,
@@ -17,80 +19,131 @@ async def run_weather_agent(
     departure_date: str,
     return_date: str,
 ) -> WeatherResult:
-    """Execute weather intelligence queries for the destination.
+    """Retrieve current weather and available forecast information."""
 
-    Returns:
-        Structured WeatherResult.
-    """
-    start_time = time.time()
-    logger.info("Weather Agent started for %s (%s to %s)", destination, departure_date, return_date)
+    start_time = time.perf_counter()
+
+    logger.info(
+        "Weather Agent started for %s (%s to %s)",
+        destination,
+        departure_date,
+        return_date,
+    )
 
     try:
-        # Check if travel departure is within OpenWeather 5-day horizon
-        dep = datetime.strptime(departure_date, "%Y-%m-%d").date()
-        today = date.today()
-        days_until_dep = (dep - today).days
+        departure = datetime.strptime(
+            departure_date,
+            "%Y-%m-%d",
+        ).date()
 
-        is_within_forecast_window = (0 <= days_until_dep <= 5)
+        days_until_departure = (departure - date.today()).days
 
-        # 1. Fetch current weather
-        current_data = get_current_weather(destination)
-        # 2. Fetch forecast if in range
-        forecast_data = get_forecast(destination) if is_within_forecast_window else {}
+        forecast_available = 0 <= days_until_departure <= 5
 
-        temp = current_data.get("temperature_celsius")
-        cond = current_data.get("condition")
+        # Retrieve current weather without blocking the event loop.
+        current_data = await asyncio.to_thread(
+            get_current_weather,
+            destination,
+        )
+
+        if current_data.get("error") and not current_data.get(
+            "temperature_celsius"
+        ):
+            return WeatherResult(
+                status=AgentStatus.UNAVAILABLE,
+                data=None,
+                source="OpenWeather API",
+                error=current_data["error"],
+            )
+
+        forecast_data = {}
+
+        # Retrieve forecast only when the departure date is within range.
+        if forecast_available:
+            forecast_data = await asyncio.to_thread(
+                get_forecast,
+                destination,
+            )
+
+        temperature = current_data.get("temperature_celsius")
+        condition = current_data.get("condition")
         humidity = current_data.get("humidity")
-        wind = current_data.get("wind_speed_mps")
+        wind_speed = current_data.get("wind_speed_mps")
 
-        considerations: List[str] = []
-        if temp is not None:
-            if temp > 28:
-                considerations.append("High temperatures expected. Pack breathable clothing, sunscreen, and stay hydrated.")
-            elif temp < 10:
-                considerations.append("Cool to cold conditions expected. Bring warm layers, thermal wear, and a wind-resistant jacket.")
+        considerations = []
+
+        if temperature is not None:
+            if temperature > 28:
+                considerations.append(
+                    "High temperatures expected. Pack breathable clothing, "
+                    "sunscreen, and stay hydrated."
+                )
+            elif temperature < 10:
+                considerations.append(
+                    "Cool to cold conditions expected. Bring warm layers "
+                    "and a wind-resistant jacket."
+                )
             else:
-                considerations.append("Mild and pleasant weather. Layered casual attire recommended.")
+                considerations.append(
+                    "Mild temperatures currently observed. "
+                    "Layered casual clothing is recommended."
+                )
 
-        if cond and "rain" in cond.lower():
-            considerations.append("Precipitation observed. Carry a compact umbrella or waterproof outerwear.")
+        if condition and "rain" in condition.lower():
+            considerations.append(
+                "Rain conditions observed. Carry an umbrella "
+                "or waterproof outerwear."
+            )
 
-        forecast_summary = None
-        if is_within_forecast_window and "forecast_summary" in forecast_data:
-            forecast_summary = forecast_data["forecast_summary"]
+        if forecast_available:
+            forecast_summary = forecast_data.get("forecast_summary")
+
+            if not forecast_summary:
+                forecast_summary = (
+                    "The departure date is within the five-day forecast "
+                    "window, but forecast information could not be retrieved."
+                )
         else:
             forecast_summary = (
-                f"Travel dates begin in {days_until_dep} days, beyond the live 5-day OpenWeather forecast window. "
-                "Current baseline conditions shown above; check the live forecast closer to departure."
+                f"The departure date is {days_until_departure} days from today. "
+                "It is outside the available five-day forecast window. "
+                "Check the forecast closer to departure."
             )
 
         weather_info = WeatherInformation(
-            temperature_celsius=temp,
-            condition=cond,
+            temperature_celsius=temperature,
+            condition=condition,
             humidity=humidity,
-            wind_speed_mps=wind,
+            wind_speed_mps=wind_speed,
             forecast_summary=forecast_summary,
-            forecast_available=is_within_forecast_window,
+            forecast_available=(
+                forecast_available
+                and bool(forecast_data.get("forecast_summary"))
+            ),
             considerations=considerations,
             source="OpenWeather API",
         )
 
-        elapsed = time.time() - start_time
-        logger.info("Weather Agent completed in %.2fs", elapsed)
+        elapsed = time.perf_counter() - start_time
+
+        logger.info(
+            "Weather Agent completed in %.2f seconds",
+            elapsed,
+        )
 
         return WeatherResult(
             status=AgentStatus.SUCCESS,
             data=weather_info,
             source="OpenWeather API",
-            error=current_data.get("error"),
+            error=forecast_data.get("error"),
         )
 
-    except Exception as e:
-        logger.error("Weather Agent failed: %s", e)
+    except Exception as exc:
+        logger.exception("Weather Agent failed during execution")
+
         return WeatherResult(
             status=AgentStatus.FAILED,
             data=None,
             source="OpenWeather API",
-            error=str(e),
+            error=str(exc),
         )
-

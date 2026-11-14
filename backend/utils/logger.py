@@ -1,86 +1,119 @@
+
 """Centralized logging configuration."""
 
 import logging
 import os
 import re
 import sys
-from typing import Optional
+from pathlib import Path
 
-# Secret patterns to mask from logs
+
 SECRET_PATTERNS = [
-    re.compile(r"(api[_-]?key[\s:=]+)([A-Za-z0-9_\-]{8,})", re.IGNORECASE),
-    re.compile(r"(password[\s:=]+)([^\s,]+)", re.IGNORECASE),
-    re.compile(r"(secret[\s:=]+)([^\s,]+)", re.IGNORECASE),
-    re.compile(r"(postgres(?:ql)?://[^:]+:)([^@]+)(@)", re.IGNORECASE),
+    re.compile(
+        r"(api[_-]?key[\s:=]+)([A-Za-z0-9_\-]{8,})",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(password[\s:=]+)([^\s,]+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(secret[\s:=]+)([^\s,]+)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(postgres(?:ql)?://[^:]+:)([^@]+)(@)",
+        re.IGNORECASE,
+    ),
 ]
 
 
 class SanitizingFormatter(logging.Formatter):
-    """Custom formatter to redact sensitive credentials from log messages."""
+    """Redact sensitive credentials from log messages."""
 
     def format(self, record: logging.LogRecord) -> str:
-        original = super().format(record)
-        sanitized = original
+        formatted_message = super().format(record)
+
         for pattern in SECRET_PATTERNS:
             if "postgres" in pattern.pattern:
-                sanitized = pattern.sub(r"\1***\3", sanitized)
+                formatted_message = pattern.sub(
+                    r"\1***\3",
+                    formatted_message,
+                )
             else:
-                sanitized = pattern.sub(r"\1***", sanitized)
-        return sanitized
+                formatted_message = pattern.sub(
+                    r"\1***",
+                    formatted_message,
+                )
+
+        return formatted_message
 
 
 def setup_logger(
     name: str = "travel_planner",
-    log_level: Optional[str] = None,
-    log_to_file: bool = True
+    log_level: str | None = None,
+    log_to_file: bool = True,
 ) -> logging.Logger:
-    """Initialize and configure a named logger.
+    """Initialize and configure a named application logger."""
 
-    Args:
-        name: Name of the logger.
-        log_level: Log level string (INFO, DEBUG, etc.). Defaults to INFO or settings.
-        log_to_file: Whether to attach a file handler under logs/ directory.
+    application_logger = logging.getLogger(name)
 
-    Returns:
-        Configured logger instance.
-    """
-    logger = logging.getLogger(name)
+    if application_logger.handlers:
+        return application_logger
 
-    if logger.handlers:
-        return logger
+    level_name = (
+        log_level or os.getenv("LOG_LEVEL", "INFO")
+    ).upper()
 
-    level_name = (log_level or os.getenv("LOG_LEVEL", "INFO")).upper()
     level = getattr(logging, level_name, logging.INFO)
-    logger.setLevel(level)
-    logger.propagate = False
 
-    fmt = "[%(asctime)s] [%(levelname)s] [%(name)s] [%(filename)s:%(lineno)d]: %(message)s"
-    datefmt = "%Y-%m-%d %H:%M:%S"
-    formatter = SanitizingFormatter(fmt=fmt, datefmt=datefmt)
+    application_logger.setLevel(level)
+    application_logger.propagate = False
 
-    # Console Handler
+    log_format = (
+        "[%(asctime)s] [%(levelname)s] [%(name)s] "
+        "[%(filename)s:%(lineno)d]: %(message)s"
+    )
+
+    formatter = SanitizingFormatter(
+        fmt=log_format,
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
     console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
 
-    # File Handler
+    application_logger.addHandler(console_handler)
+
     if log_to_file:
         try:
-            log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "logs")
-            os.makedirs(log_dir, exist_ok=True)
-            log_file = os.path.join(log_dir, "travel_planner.log")
-            file_handler = logging.FileHandler(log_file, encoding="utf-8")
+            project_root = Path(__file__).resolve().parents[2]
+            log_directory = project_root / "logs"
+
+            log_directory.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+            log_file = log_directory / "travel_planner.log"
+
+            file_handler = logging.FileHandler(
+                log_file,
+                encoding="utf-8",
+            )
+
             file_handler.setLevel(level)
             file_handler.setFormatter(formatter)
-            logger.addHandler(file_handler)
-        except Exception:
-            # Fall back to console only if file creation fails
-            pass
 
-    return logger
+            application_logger.addHandler(file_handler)
+
+        except OSError:
+            application_logger.warning(
+                "File logging unavailable. Console logging remains active."
+            )
+
+    return application_logger
 
 
-# Default application logger
-logger = setup_logger("travel_planner")
-
+logger = setup_logger()

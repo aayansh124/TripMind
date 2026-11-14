@@ -1,37 +1,52 @@
-# Python
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Python virtual environments
+venv/
+env/
+.myenv/
+myenv/
+
+# Python cache files
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-env/
-venv/
-.venv/
-ENV/
 
-# Environment variables
-.env
-
-# Logs
-logs/*.log
-!logs/.gitkeep
-
-# Pytest and coverage
+# Testing and coverage
 .pytest_cache/
 .coverage
 htmlcov/
+.tox/
 
-# Editor / IDE
+# Logs
+*.log
+logs/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE and editor files
 .vscode/
 .idea/
 *.swp
-*.swo
 
-# OS
-Thumbs.db
-Desktop.ini
+# Operating system files
 .DS_Store
+Thumbs.db
+desktop.ini
 
 # Streamlit
-.streamlit/
+.streamlit/secrets.toml
 
+# Build files
+build/
+dist/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/

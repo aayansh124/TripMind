@@ -1,21 +1,16 @@
 # Database Migrations
 
-This directory contains Alembic migration scripts and documentation for the PostgreSQL database schema.
+This directory contains Alembic migration scripts for the PostgreSQL database schema.
 
-## Commands
+## Prerequisites
 
-Initialize migration environment:
-```powershell
-alembic init backend/database/migrations
-```
+- PostgreSQL must be running.
+- DATABASE_URL must be configured in the project's `.env` file.
+- Python dependencies must be installed.
 
-Create a new migration:
+## Create a Migration
+
+Generate a migration from the SQLAlchemy models:
+
 ```powershell
 alembic revision --autogenerate -m "create_initial_schema"
-```
-
-Apply migrations:
-```powershell
-alembic upgrade head
-```
-

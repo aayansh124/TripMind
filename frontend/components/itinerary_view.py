@@ -1,105 +1,129 @@
+
 """Daily itinerary view with itemized schedules and budget breakdown."""
 
-from typing import Any, Dict, List
+from typing import Any
+
 import streamlit as st
 
 
-def render_itinerary_view(trip_plan: Dict[str, Any]) -> None:
-    """Render day-wise schedule cards and financial reconciliation.
+def _safe_number(value: Any) -> float:
+    """Convert a value to a number with a safe default."""
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
-    Args:
-        trip_plan: Dictionary representing consolidated TravelPlan.
-    """
-    st.markdown("### 📅 Day-by-Day Itinerary")
 
-    itinerary_days: List[Dict[str, Any]] = trip_plan.get("itinerary", [])
-    currency = trip_plan.get("budget", {}).get("currency", "USD")
+def render_itinerary_view(trip_plan: dict[str, Any]) -> None:
+    """Render day-wise schedules and budget information."""
+
+    st.markdown("### Day-by-Day Itinerary")
+
+    itinerary_days = trip_plan.get("itinerary") or []
+    budget = trip_plan.get("budget") or {}
+    currency = str(budget.get("currency") or "USD")
 
     if not itinerary_days:
         st.info("No detailed daily itinerary items available for this trip.")
         return
 
-    # Tabs for each travel day
-    tab_labels = [f"Day {d.get('day', i+1)}" for i, d in enumerate(itinerary_days)]
+    tab_labels = [
+        f"Day {day.get('day', index + 1)}"
+        for index, day in enumerate(itinerary_days)
+    ]
     tabs = st.tabs(tab_labels)
 
     for idx, (tab, day) in enumerate(zip(tabs, itinerary_days)):
         with tab:
             day_num = day.get("day", idx + 1)
             cal_date = day.get("date")
-            date_str = f" ({cal_date})" if cal_date else ""
 
-            st.markdown(f"#### Day {day_num}{date_str}")
+            st.markdown(f"#### Day {day_num}")
+            if cal_date:
+                st.caption(str(cal_date))
 
             col1, col2, col3 = st.columns(3)
 
-            with col1:
-                st.markdown("**🌅 Morning**")
-                morning_items = day.get("morning", [])
-                if morning_items:
-                    for item in morning_items:
-                        st.markdown(f"- {item}")
-                else:
-                    st.markdown("*Morning arrival or leisure exploration.*")
+            time_periods = [
+                ("Morning", "morning", col1, "Morning arrival or leisure exploration."),
+                ("Afternoon", "afternoon", col2, "Afternoon cultural activities and dining."),
+                ("Evening", "evening", col3, "Evening dining and night walk."),
+            ]
 
-            with col2:
-                st.markdown("**☀️ Afternoon**")
-                afternoon_items = day.get("afternoon", [])
-                if afternoon_items:
-                    for item in afternoon_items:
-                        st.markdown(f"- {item}")
-                else:
-                    st.markdown("*Afternoon cultural activities and dining.*")
+            for title, key, column, fallback in time_periods:
+                with column:
+                    st.markdown(f"**{title}**")
+                    activities = day.get(key) or []
 
-            with col3:
-                st.markdown("**🌙 Evening**")
-                evening_items = day.get("evening", [])
-                if evening_items:
-                    for item in evening_items:
-                        st.markdown(f"- {item}")
-                else:
-                    st.markdown("*Evening dining and night walk.*")
+                    if activities:
+                        for activity in activities:
+                            st.write(f"- {activity}")
+                    else:
+                        st.caption(fallback)
 
             st.divider()
 
-            # Highlights & Daily Budget Estimate
-            bcol1, bcol2 = st.columns([2, 1])
+            budget_col, locations_col = st.columns([1, 2])
 
-            with bcol1:
-                places = day.get("places_to_visit", [])
+            with locations_col:
+                places = day.get("places_to_visit") or []
                 if places:
-                    st.markdown(f"**📍 Key Locations:** {', '.join(places)}")
+                    st.markdown("**Key Locations**")
+                    st.write(", ".join(str(place) for place in places))
 
-            with bcol2:
-                daily_tot = day.get("daily_total", 0.0)
+            with budget_col:
+                daily_total = _safe_number(day.get("daily_total"))
                 st.metric(
                     label="Estimated Daily Cost",
-                    value=f"{daily_tot:,.2f} {currency}",
+                    value=f"{daily_total:,.2f} {currency}",
                 )
 
-    # Deterministic Budget Breakdown Section
     st.divider()
-    st.markdown("### 💰 Financial Breakdown & Budget Audit")
+    st.markdown("### Financial Breakdown & Budget Audit")
 
-    bb = trip_plan.get("budget_breakdown", {})
-    if bb:
-        mcol1, mcol2, mcol3, mcol4 = st.columns(4)
-        with mcol1:
-            st.metric("Allocated Budget", f"{bb.get('user_budget', 0):,.2f} {currency}")
-        with mcol2:
-            st.metric("Total Estimated Cost", f"{bb.get('total_estimated_cost', 0):,.2f} {currency}")
-        with mcol3:
-            st.metric("Lodging Estimate", f"{bb.get('hotel_estimate', 0):,.2f} {currency}")
-        with mcol4:
-            st.metric("Food & Transit", f"{(bb.get('food_estimate', 0) + bb.get('transport_estimate', 0)):,.2f} {currency}")
+    breakdown = trip_plan.get("budget_breakdown") or {}
 
-        if bb.get("is_within_budget"):
-            st.success("✅ Projected expenses are within your target budget!")
+    if not breakdown:
+        st.info("Detailed budget breakdown is not available.")
+        return
+
+    user_budget = _safe_number(breakdown.get("user_budget"))
+    total_cost = _safe_number(breakdown.get("total_estimated_cost"))
+    hotel_cost = _safe_number(breakdown.get("hotel_estimate"))
+    food_cost = _safe_number(breakdown.get("food_estimate"))
+    transport_cost = _safe_number(breakdown.get("transport_estimate"))
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("Allocated Budget", f"{user_budget:,.2f} {currency}")
+
+    with col2:
+        st.metric("Total Estimated Cost", f"{total_cost:,.2f} {currency}")
+
+    with col3:
+        st.metric("Lodging Estimate", f"{hotel_cost:,.2f} {currency}")
+
+    with col4:
+        st.metric(
+            "Food & Transit",
+            f"{food_cost + transport_cost:,.2f} {currency}",
+        )
+
+    if breakdown.get("is_within_budget"):
+        st.success("Projected expenses are within your target budget!")
+    else:
+        overrun = _safe_number(breakdown.get("overrun_amount"))
+        st.warning(
+            f"Projected expenses exceed the target budget by "
+            f"{overrun:,.2f} {currency}. Consider adjusting activities or lodging."
+        )
+
+    with st.expander("Detailed Calculation Assumptions"):
+        notes = breakdown.get("calculation_notes") or []
+
+        if notes:
+            for note in notes:
+                st.write(f"- {note}")
         else:
-            overrun = bb.get("overrun_amount", 0)
-            st.warning(f"⚠️ Projected expenses exceed target budget by **{overrun:,.2f} {currency}**. Review luxury activities or lodging to reduce costs.")
-
-        with st.expander("🔍 Detailed Calculation Assumptions"):
-            for note in bb.get("calculation_notes", []):
-                st.markdown(f"- {note}")
-
+            st.caption("No calculation notes available.")

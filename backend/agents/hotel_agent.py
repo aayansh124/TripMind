@@ -1,24 +1,28 @@
-"""Hotel Specialist Agent."""
 
+"""Hotel specialist agent."""
+
+import asyncio
 import time
-from typing import List, Optional
+from typing import Optional
+
 from pydantic import BaseModel, Field
-from langchain_core.messages import SystemMessage, HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from backend.api.schemas.travel import (
     AgentStatus,
     HotelInformation,
     HotelResult,
 )
-from backend.clients.llm_client import get_gemini_client, get_structured_llm
+from backend.clients.llm_client import get_structured_llm
 from backend.prompts.agent_prompts import HOTEL_AGENT_PROMPT
 from backend.tools.hotel_tools import search_accommodations
 from backend.utils.logger import logger
 
 
 class HotelExtractionList(BaseModel):
-    """Pydantic model for LLM structured extraction of hotels."""
-    hotels: List[HotelInformation] = Field(default_factory=list)
+    """Structured output schema for hotel recommendations."""
+
+    hotels: list[HotelInformation] = Field(default_factory=list)
 
 
 async def run_hotel_agent(
@@ -31,95 +35,136 @@ async def run_hotel_agent(
     departure_date: Optional[str] = None,
     return_date: Optional[str] = None,
 ) -> HotelResult:
-    """Execute accommodation discovery and structured organization.
+    """Discover and structure accommodation recommendations."""
 
-    Returns:
-        Structured HotelResult.
-    """
-    start_time = time.time()
-    logger.info("Hotel Agent started for %s (budget: %.2f %s)", destination, budget, currency)
+    start_time = time.perf_counter()
 
-    # 1. Discover accommodations via Tavily
+    logger.info(
+        "Hotel Agent started for %s (budget: %.2f %s)",
+        destination,
+        budget,
+        currency,
+    )
+
     raw_results = []
+
+    # Discover accommodation options through Tavily.
     try:
-        raw_results = search_accommodations(
+        raw_results = await asyncio.to_thread(
+            search_accommodations,
             destination=destination,
             travel_style=travel_style,
             accommodation_preference=accommodation_preference,
             budget=budget,
             currency=currency,
         )
-    except Exception as e:
-        logger.warning("Hotel search tool failed: %s", e)
 
-    # 2. Extract structured hotel details with Gemini
-    hotels_list: List[HotelInformation] = []
-    try:
-        context_blocks = []
-        for r in raw_results:
-            context_blocks.append(f"Title: {r.get('title')}\nURL: {r.get('url')}\nContent: {r.get('content')}")
+    except Exception:
+        logger.exception("Hotel search failed for %s", destination)
 
-        search_context = "\n---\n".join(context_blocks) if context_blocks else "No live web results available."
+    hotels_list: list[HotelInformation] = []
 
-        formatted_prompt = HOTEL_AGENT_PROMPT.format(
-            destination=destination,
-            budget=budget,
-            currency=currency,
-            travellers=travellers,
-            travel_style=travel_style,
-            accommodation_preference=accommodation_preference or "Hotel / Boutique stay",
-            departure_date=departure_date or "Flexible",
-            return_date=return_date or "Flexible",
-            search_context=search_context,
-        )
+    # Extract structured hotel details using Gemini.
+    if raw_results:
+        try:
+            context_blocks = []
 
-        structured_llm = get_structured_llm(HotelExtractionList)
-        extraction: HotelExtractionList = await structured_llm.ainvoke([
-            SystemMessage(content=formatted_prompt),
-            HumanMessage(content=f"Extract 3-5 top accommodation recommendations in {destination} matching {travel_style} style."),
-        ])
-        hotels_list = extraction.hotels
-
-    except Exception as e:
-        logger.warning("Hotel extraction via LLM failed or bypassed: %s. Using discovered items directly.", e)
-        # Fallback extraction from raw results directly if LLM fails
-        for r in raw_results[:4]:
-            hotels_list.append(
-                HotelInformation(
-                    hotel_name=r.get("title", f"Accommodation in {destination}")[:80],
-                    location=destination,
-                    description=r.get("content", "Popular accommodation recommendation.")[:250],
-                    estimated_price_per_night=None,
-                    currency=currency,
-                    rating=None,
-                    website=r.get("url"),
-                    source_url=r.get("url"),
-                    is_verified_availability=False,
+            for result in raw_results:
+                context_blocks.append(
+                    f"Title: {result.get('title', '')}\n"
+                    f"URL: {result.get('url', '')}\n"
+                    f"Content: {result.get('content', '')}"
                 )
-            )
 
-    # Ensure we have at least standard recommendations if search returned zero
-    if not hotels_list:
-        hotels_list = [
-            HotelInformation(
-                hotel_name=f"Central {destination} Boutique Hotel",
-                location=f"Central District, {destination}",
-                description=f"Conveniently located accommodation near key tourist hubs in {destination}.",
-                estimated_price_per_night=None,
+            search_context = "\n---\n".join(context_blocks)
+
+            formatted_prompt = HOTEL_AGENT_PROMPT.format(
+                destination=destination,
+                budget=budget,
                 currency=currency,
-                rating=4.3,
-                website=f"https://www.google.com/travel/hotels/{destination}",
-                source_url=f"https://www.google.com/travel/hotels/{destination}",
-                is_verified_availability=False,
+                travellers=travellers,
+                travel_style=travel_style,
+                accommodation_preference=(
+                    accommodation_preference or "Hotel / Boutique stay"
+                ),
+                departure_date=departure_date or "Flexible",
+                return_date=return_date or "Flexible",
+                search_context=search_context,
             )
-        ]
 
-    elapsed = time.time() - start_time
-    logger.info("Hotel Agent completed in %.2fs with %d hotels", elapsed, len(hotels_list))
+            structured_llm = get_structured_llm(HotelExtractionList)
 
-    return HotelResult(
-        status=AgentStatus.SUCCESS,
-        data=hotels_list,
-        source="Tavily Web Search / Discovery",
+            extraction: HotelExtractionList = await structured_llm.ainvoke(
+                [
+                    SystemMessage(content=formatted_prompt),
+                    HumanMessage(
+                        content=(
+                            f"Extract 3-5 accommodation recommendations "
+                            f"in {destination} matching {travel_style} style. "
+                            "Only use details supported by the search results. "
+                            "Do not invent prices, ratings, or availability."
+                        )
+                    ),
+                ]
+            )
+
+            hotels_list = extraction.hotels
+
+        except Exception:
+            logger.exception(
+                "Hotel extraction failed for %s; using raw search results",
+                destination,
+            )
+
+            # Preserve discovered options when structured extraction fails.
+            for result in raw_results[:4]:
+                url = result.get("url")
+
+                if not url:
+                    continue
+
+                hotels_list.append(
+                    HotelInformation(
+                        hotel_name=result.get(
+                            "title",
+                            f"Accommodation in {destination}",
+                        )[:80],
+                        location=destination,
+                        description=result.get(
+                            "content",
+                            "Accommodation discovered through web search.",
+                        )[:250],
+                        estimated_price_per_night=None,
+                        currency=currency,
+                        rating=None,
+                        website=url,
+                        source_url=url,
+                        is_verified_availability=False,
+                    )
+                )
+
+    elapsed = time.perf_counter() - start_time
+
+    logger.info(
+        "Hotel Agent completed in %.2f seconds with %d recommendations",
+        elapsed,
+        len(hotels_list),
     )
 
+    if hotels_list:
+        return HotelResult(
+            status=AgentStatus.SUCCESS,
+            data=hotels_list,
+            source="Tavily Web Search / Discovery",
+        )
+
+    return HotelResult(
+        status=AgentStatus.UNAVAILABLE,
+        data=[],
+        source="Tavily Web Search / Discovery",
+        error="No accommodation recommendations could be retrieved.",
+        limitations=(
+            "Hotel search results were unavailable. "
+            "Check the Tavily API configuration and try again."
+        ),
+    )

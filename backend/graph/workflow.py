@@ -1,11 +1,11 @@
-"""LangGraph workflow construction with parallel execution and checkpointing."""
 
-import os
-from typing import Any
-from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
+"""Construct LangGraph workflows with PostgreSQL checkpointing."""
 
-from backend.clients.database import check_db_health
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.graph import END, START, StateGraph
+
 from backend.config.settings import get_settings
 from backend.graph.nodes import (
     chat_node,
@@ -19,37 +19,125 @@ from backend.graph.nodes import (
 from backend.graph.state import TravelState
 from backend.utils.logger import logger
 
+
 settings = get_settings()
 
-# In-memory checkpointer singleton for fast memory/offline fallback
-_memory_saver = MemorySaver()
+_connection_pool: ConnectionPool | None = None
+_checkpointer: PostgresSaver | None = None
+
+travel_workflow = None
+chat_workflow = None
 
 
-def get_checkpointer() -> Any:
-    """Retrieve LangGraph checkpointer (PostgresSaver if DB is available, otherwise MemorySaver)."""
-    if (
-        os.getenv("TESTING") != "1"
-        and check_db_health() == "connected"
-        and settings.DATABASE_URL.startswith("postgres")
-    ):
-        try:
-            from langgraph.checkpoint.postgres import PostgresSaver
-            # Connect to PostgreSQL checkpointer
-            saver = PostgresSaver.from_conn_string(settings.DATABASE_URL)
-            saver.setup()
-            logger.info("Using PostgreSQL LangGraph checkpointer.")
-            return saver
-        except Exception as e:
-            logger.warning("Could not initialize PostgresSaver (%s). Falling back to MemorySaver.", e)
+def _get_postgres_connection_string() -> str:
+    """Convert the SQLAlchemy PostgreSQL URL to a psycopg connection URL."""
 
-    return _memory_saver
+    database_url = settings.DATABASE_URL
+
+    return database_url.replace(
+        "postgresql+psycopg://",
+        "postgresql://",
+        1,
+    )
 
 
-def build_travel_workflow() -> Any:
-    """Construct and compile the primary multi-agent travel planning graph with parallel fan-out/in."""
+def initialize_workflows() -> None:
+    """Initialize PostgreSQL checkpointing and compile LangGraph workflows."""
+
+    global _connection_pool
+    global _checkpointer
+    global travel_workflow
+    global chat_workflow
+
+    if travel_workflow is not None and chat_workflow is not None:
+        return
+
+    logger.info("Initializing PostgreSQL LangGraph checkpointer.")
+
+    try:
+        _connection_pool = ConnectionPool(
+            conninfo=_get_postgres_connection_string(),
+            min_size=1,
+            max_size=10,
+            kwargs={
+                "autocommit": True,
+                "row_factory": dict_row,
+            },
+            open=False,
+        )
+
+        _connection_pool.open(wait=True)
+
+        _checkpointer = PostgresSaver(_connection_pool)
+        _checkpointer.setup()
+
+        travel_workflow = build_travel_workflow(_checkpointer)
+        chat_workflow = build_chat_workflow(_checkpointer)
+
+        logger.info("LangGraph workflows initialized successfully.")
+
+    except Exception:
+        logger.exception("Failed to initialize LangGraph workflows.")
+
+        if _connection_pool is not None:
+            _connection_pool.close()
+
+        _connection_pool = None
+        _checkpointer = None
+        travel_workflow = None
+        chat_workflow = None
+
+        raise
+
+
+def close_workflows() -> None:
+    """Close the PostgreSQL checkpoint connection pool."""
+
+    global _connection_pool
+    global _checkpointer
+    global travel_workflow
+    global chat_workflow
+
+    if _connection_pool is not None:
+        _connection_pool.close()
+
+    _connection_pool = None
+    _checkpointer = None
+    travel_workflow = None
+    chat_workflow = None
+
+    logger.info("LangGraph PostgreSQL connection pool closed.")
+
+
+def get_travel_workflow():
+    """Return the initialized travel workflow."""
+
+    if travel_workflow is None:
+        raise RuntimeError(
+            "Travel workflow is not initialized. "
+            "Initialize workflows during application startup."
+        )
+
+    return travel_workflow
+
+
+def get_chat_workflow():
+    """Return the initialized chat workflow."""
+
+    if chat_workflow is None:
+        raise RuntimeError(
+            "Chat workflow is not initialized. "
+            "Initialize workflows during application startup."
+        )
+
+    return chat_workflow
+
+
+def build_travel_workflow(checkpointer: PostgresSaver):
+    """Build the multi-agent travel planning graph."""
+
     builder = StateGraph(TravelState)
 
-    # 1. Add all Agent Nodes
     builder.add_node("destination_agent", destination_node)
     builder.add_node("flight_agent", flight_node)
     builder.add_node("hotel_agent", hotel_node)
@@ -57,44 +145,38 @@ def build_travel_workflow() -> Any:
     builder.add_node("itinerary_agent", itinerary_node)
     builder.add_node("response_agent", response_node)
 
-    # 2. Define Execution Edges
-    # START -> Destination Agent
     builder.add_edge(START, "destination_agent")
 
-    # Destination Agent -> PARALLEL Fan-Out to Flight, Hotel, and Weather Agents
     builder.add_edge("destination_agent", "flight_agent")
     builder.add_edge("destination_agent", "hotel_agent")
     builder.add_edge("destination_agent", "weather_agent")
 
-    # PARALLEL Fan-In: Flight, Hotel, and Weather Agents -> Itinerary Agent
     builder.add_edge("flight_agent", "itinerary_agent")
     builder.add_edge("hotel_agent", "itinerary_agent")
     builder.add_edge("weather_agent", "itinerary_agent")
 
-    # Itinerary Agent -> Response Agent -> END
     builder.add_edge("itinerary_agent", "response_agent")
     builder.add_edge("response_agent", END)
 
-    checkpointer = get_checkpointer()
     compiled_graph = builder.compile(checkpointer=checkpointer)
-    logger.info("Compiled Multi-Agent Travel Planning StateGraph with parallel execution.")
+
+    logger.info("Travel planning graph compiled successfully.")
+
     return compiled_graph
 
 
-def build_chat_workflow() -> Any:
-    """Construct and compile the conversational follow-up graph."""
+def build_chat_workflow(checkpointer: PostgresSaver):
+    """Build the conversational follow-up graph."""
+
     builder = StateGraph(TravelState)
+
     builder.add_node("chat_node", chat_node)
+
     builder.add_edge(START, "chat_node")
     builder.add_edge("chat_node", END)
 
-    checkpointer = get_checkpointer()
-    compiled_chat = builder.compile(checkpointer=checkpointer)
-    logger.info("Compiled Conversational LangGraph StateGraph.")
-    return compiled_chat
+    compiled_graph = builder.compile(checkpointer=checkpointer)
 
+    logger.info("Chat workflow compiled successfully.")
 
-# Pre-compiled workflow singletons
-travel_workflow = build_travel_workflow()
-chat_workflow = build_chat_workflow()
-
+    return compiled_graph

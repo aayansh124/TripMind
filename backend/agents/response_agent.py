@@ -1,12 +1,11 @@
-"""Response Synthesizer Agent."""
+
+"""Response synthesizer agent."""
 
 import time
-from typing import Any, Dict, List, Optional
 
 from backend.api.schemas.travel import (
     AgentStatus,
     BudgetBreakdown,
-    DailyItinerary,
     DestinationOverview,
     DestinationResult,
     FlightInformation,
@@ -17,6 +16,7 @@ from backend.api.schemas.travel import (
     TravelRequest,
     WeatherInformation,
     WeatherResult,
+    DailyItinerary,
 )
 from backend.services.budget_service import calculate_budget_breakdown
 from backend.utils.logger import logger
@@ -26,72 +26,109 @@ async def run_response_agent(
     trip_id: str,
     request: TravelRequest,
     duration_days: int,
-    destination_res: Optional[DestinationResult] = None,
-    flight_res: Optional[FlightResult] = None,
-    hotel_res: Optional[HotelResult] = None,
-    weather_res: Optional[WeatherResult] = None,
-    itinerary_days: Optional[List[DailyItinerary]] = None,
+    destination_res: DestinationResult | None = None,
+    flight_res: FlightResult | None = None,
+    hotel_res: HotelResult | None = None,
+    weather_res: WeatherResult | None = None,
+    itinerary_days: list[DailyItinerary] | None = None,
 ) -> TravelPlan:
-    """Consolidate research findings, run deterministic budget checks, and synthesize final plan.
+    """Consolidate agent results and generate the final travel plan."""
 
-    Returns:
-        Consolidated TravelPlan.
-    """
-    start_time = time.time()
-    logger.info("Response Agent consolidating final plan for trip_id: %s", trip_id)
+    start_time = time.perf_counter()
 
-    # 1. Aggregate sources and warnings
-    sources: List[str] = ["Antigravity Multi-Agent Orchestrator"]
-    warnings: List[str] = []
-
-    # Process Destination
-    dest_overview = DestinationOverview(
-        overview=f"Welcome to {request.destination}! An exciting journey awaits.",
-        highlights=[f"Historic central {request.destination}"],
-        activities=["Sightseeing walking tours", "Regional dining"],
-        cultural_tips=["Follow standard local etiquette and currency exchange guidance."],
-        potential_constraints=["Verify opening hours of seasonal monuments."],
+    logger.info(
+        "Response Agent started for trip_id: %s",
+        trip_id,
     )
-    if destination_res and destination_res.data:
-        dest_overview = destination_res.data
-        if destination_res.source:
-            sources.extend(destination_res.source)
-    else:
-        warnings.append("Destination overview generated from base geographical knowledge.")
 
-    # Process Flights
-    flights_data: List[FlightInformation] = []
+    sources = ["Multi-Agent Travel Planner"]
+    warnings = []
+
+    # Process destination information.
+    destination_overview = DestinationOverview(
+        overview=(
+            f"Basic destination information for {request.destination}. "
+            "Detailed destination research was unavailable."
+        ),
+        highlights=[],
+        activities=[],
+        cultural_tips=[],
+        potential_constraints=[],
+    )
+
+    if destination_res and destination_res.data:
+        destination_overview = destination_res.data
+        sources.extend(destination_res.source)
+
+        if destination_res.status != AgentStatus.SUCCESS:
+            warnings.append(
+                "Destination information is partially available."
+            )
+    else:
+        warnings.append(
+            "Destination research was unavailable."
+        )
+
+    # Process flight information.
+    flights_data: list[FlightInformation] = []
+
     if flight_res and flight_res.data:
         flights_data = flight_res.data
-        sources.append("AviationStack API")
-        if flight_res.limitations:
-            warnings.append(f"Flight status note: {flight_res.limitations}")
-    else:
-        warnings.append("Real-time flight pricing is unverified. Consult airlines for live booking tickets.")
+        sources.append(flight_res.source)
 
-    # Process Hotels
-    hotels_data: List[HotelInformation] = []
+    if not flight_res or flight_res.status != AgentStatus.SUCCESS:
+        warnings.append(
+            "Flight information is incomplete or unavailable. "
+            "Verify schedules and ticket prices directly with airlines."
+        )
+
+    if flight_res and flight_res.limitations:
+        warnings.append(flight_res.limitations)
+
+    # Process accommodation information.
+    hotels_data: list[HotelInformation] = []
+
     if hotel_res and hotel_res.data:
         hotels_data = hotel_res.data
-        sources.append("Tavily Web Search")
-        warnings.append("Hotel prices and room availability are web discovery estimates and require direct confirmation.")
-    else:
-        warnings.append("Accommodation recommendations were generated using general area knowledge.")
+        sources.append(hotel_res.source)
 
-    # Process Weather
-    weather_info: Optional[WeatherInformation] = None
+        warnings.append(
+            "Hotel recommendations are based on web discovery. "
+            "Confirm prices and room availability with the property "
+            "or booking provider."
+        )
+    else:
+        warnings.append(
+            "No accommodation recommendations were retrieved. "
+            "Check hotel options directly before traveling."
+        )
+
+    # Process weather information.
+    weather_info: WeatherInformation | None = None
+
     if weather_res and weather_res.data:
         weather_info = weather_res.data
-        sources.append("OpenWeather API")
-        if not weather_info.forecast_available:
-            warnings.append("Travel dates exceed the 5-day live forecast window. Historical weather trends applied.")
-    else:
-        warnings.append("Weather service observation unavailable for destination.")
+        sources.append(weather_res.source)
 
-    # Process Itinerary
+        if not weather_info.forecast_available:
+            warnings.append(
+                "A live forecast for the requested travel dates "
+                "is not currently available."
+            )
+    else:
+        warnings.append(
+            "Weather information is unavailable for the destination."
+        )
+
+    # Process generated itinerary.
     itinerary = itinerary_days or []
 
-    # 2. Run Deterministic Budget Service
+    if not itinerary:
+        warnings.append(
+            "A detailed day-by-day itinerary could not be generated."
+        )
+
+    # Calculate the overall budget using deterministic Python arithmetic.
     budget_breakdown: BudgetBreakdown = calculate_budget_breakdown(
         user_budget=request.budget,
         currency=request.currency,
@@ -105,24 +142,46 @@ async def run_response_agent(
 
     if not budget_breakdown.is_within_budget:
         warnings.append(
-            f"Budget alert: Total estimated cost ({budget_breakdown.total_estimated_cost:.2f} {request.currency}) "
-            f"exceeds user budget by {budget_breakdown.overrun_amount:.2f} {request.currency}."
+            f"Estimated expenses exceed the allocated budget by "
+            f"{budget_breakdown.overrun_amount:.2f} "
+            f"{request.currency}."
         )
 
-    # 3. Compile Travel Tips
-    travel_tips: List[str] = [
-        f"Keep digital and physical copies of travel IDs when traveling to {request.destination}.",
-        f"Recommended travel style is {request.travel_style.value}. Adjust daily pacing accordingly.",
-        f"Carry a payment card with zero foreign transaction fees in {request.currency}.",
+    # Compile practical travel tips.
+    travel_tips = [
+        f"Keep digital and physical copies of travel documents "
+        f"when traveling to {request.destination}.",
+        f"Review your travel arrangements before departure.",
+        "Confirm accommodation bookings and transport schedules "
+        "directly with the respective providers.",
     ]
+
     if weather_info and weather_info.considerations:
         travel_tips.extend(weather_info.considerations)
-    if dest_overview.cultural_tips:
-        travel_tips.extend(dest_overview.cultural_tips[:3])
 
-    # Deduplicate sources preserving order
+    if destination_overview.cultural_tips:
+        travel_tips.extend(destination_overview.cultural_tips[:3])
+
+    # Remove duplicate sources while preserving their order.
     unique_sources = list(dict.fromkeys(sources))
 
+    # Determine overall execution status.
+    agent_statuses = [
+        destination_res.status if destination_res else AgentStatus.UNAVAILABLE,
+        flight_res.status if flight_res else AgentStatus.UNAVAILABLE,
+        hotel_res.status if hotel_res else AgentStatus.UNAVAILABLE,
+        weather_res.status if weather_res else AgentStatus.UNAVAILABLE,
+    ]
+
+    if (
+        all(status == AgentStatus.SUCCESS for status in agent_statuses)
+        and not warnings
+    ):
+        execution_status = AgentStatus.SUCCESS
+    else:
+        execution_status = AgentStatus.PARTIAL
+
+    # Assemble the final travel plan.
     plan = TravelPlan(
         trip_id=trip_id,
         origin=request.origin,
@@ -131,9 +190,12 @@ async def run_response_agent(
         return_date=request.return_date,
         duration_days=duration_days,
         travellers=request.travellers,
-        budget={"amount": request.budget, "currency": request.currency},
+        budget={
+            "amount": request.budget,
+            "currency": request.currency,
+        },
         travel_style=request.travel_style.value,
-        destination_overview=dest_overview,
+        destination_overview=destination_overview,
         flights=flights_data,
         hotels=hotels_data,
         weather=weather_info,
@@ -142,11 +204,15 @@ async def run_response_agent(
         travel_tips=travel_tips,
         sources=unique_sources,
         warnings=warnings,
-        execution_status=AgentStatus.SUCCESS if len(warnings) < 3 else AgentStatus.PARTIAL,
+        execution_status=execution_status,
     )
 
-    elapsed = time.time() - start_time
-    logger.info("Response Agent finished plan assembly in %.2fs", elapsed)
+    elapsed = time.perf_counter() - start_time
+
+    logger.info(
+        "Response Agent completed in %.2f seconds for trip_id: %s",
+        elapsed,
+        trip_id,
+    )
 
     return plan
-

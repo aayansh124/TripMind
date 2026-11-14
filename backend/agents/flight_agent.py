@@ -1,7 +1,9 @@
-"""Flight Specialist Agent."""
 
+"""Flight specialist agent."""
+
+import asyncio
 import time
-from typing import List, Optional
+
 from backend.api.schemas.travel import (
     AgentStatus,
     FlightInformation,
@@ -17,55 +19,67 @@ async def run_flight_agent(
     departure_date: str,
     return_date: str,
 ) -> FlightResult:
-    """Execute flight intelligence query using AviationStack and format verified details.
+    """Retrieve and structure flight information from AviationStack."""
 
-    Returns:
-        Structured FlightResult.
-    """
-    start_time = time.time()
-    logger.info("Flight Agent started: %s -> %s for %s", origin, destination, departure_date)
+    start_time = time.perf_counter()
+
+    logger.info(
+        "Flight Agent started: %s -> %s for %s",
+        origin,
+        destination,
+        departure_date,
+    )
 
     try:
-        raw_result = search_flights(
+        # Retrieve flight schedules without blocking the event loop.
+        raw_result = await asyncio.to_thread(
+            search_flights,
             origin=origin,
             destination=destination,
             departure_date=departure_date,
             limit=5,
         )
 
-        flights_data: List[FlightInformation] = []
-        raw_flights = raw_result.get("flights", [])
+        flights_data: list[FlightInformation] = []
 
-        for f in raw_flights:
+        for flight in raw_result.get("flights", []):
             flights_data.append(
                 FlightInformation(
-                    airline=f.get("airline"),
-                    flight_number=f.get("flight_number"),
-                    departure_airport=f.get("departure_airport"),
-                    arrival_airport=f.get("arrival_airport"),
-                    departure_time=f.get("departure_time"),
-                    arrival_time=f.get("arrival_time"),
-                    flight_status=f.get("flight_status", "scheduled"),
-                    price=None,  # Preserved as None; never fabricated
+                    airline=flight.get("airline"),
+                    flight_number=flight.get("flight_number"),
+                    departure_airport=flight.get("departure_airport"),
+                    arrival_airport=flight.get("arrival_airport"),
+                    departure_time=flight.get("departure_time"),
+                    arrival_time=flight.get("arrival_time"),
+                    flight_status=flight.get("flight_status", "scheduled"),
+                    price=None,
                     currency=None,
                     is_verified_price=False,
                     source="AviationStack API",
-                    note=f.get("note", "Flight timetable status."),
+                    note=flight.get(
+                        "note",
+                        "Flight timetable information retrieved from AviationStack.",
+                    ),
                 )
             )
 
-        status = AgentStatus.SUCCESS if flights_data else AgentStatus.UNAVAILABLE
-        limitations = raw_result.get("limitations")
-
-        if not flights_data:
-            limitations = (
-                f"No scheduled flights found between '{origin}' and '{destination}' via AviationStack API. "
-                "AviationStack requires specific IATA airport codes (e.g. JFK, LHR) or active commercial carrier feeds. "
-                "Prices and live inventory are not supported by the public feed and must be confirmed via airline portals."
+        if flights_data:
+            status = AgentStatus.SUCCESS
+            limitations = raw_result.get("limitations")
+        else:
+            status = AgentStatus.UNAVAILABLE
+            limitations = raw_result.get("limitations") or (
+                f"No flight schedules were returned for {origin} to {destination}. "
+                "Check the airport codes and confirm schedules with the airline."
             )
 
-        elapsed = time.time() - start_time
-        logger.info("Flight Agent completed in %.2fs with %d flights", elapsed, len(flights_data))
+        elapsed = time.perf_counter() - start_time
+
+        logger.info(
+            "Flight Agent completed in %.2f seconds with %d flights",
+            elapsed,
+            len(flights_data),
+        )
 
         return FlightResult(
             status=status,
@@ -75,13 +89,13 @@ async def run_flight_agent(
             limitations=limitations,
         )
 
-    except Exception as e:
-        logger.error("Flight Agent encountered an exception: %s", e)
+    except Exception as exc:
+        logger.exception("Flight Agent failed during execution")
+
         return FlightResult(
             status=AgentStatus.FAILED,
             data=[],
             source="AviationStack API",
-            error=str(e),
+            error=str(exc),
             limitations="Flight service error encountered during execution.",
         )
-

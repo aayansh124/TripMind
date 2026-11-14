@@ -1,6 +1,8 @@
+
 """OpenWeather API integration for current weather and 5-day forecasts."""
 
-from typing import Any, Dict, Optional
+from typing import Any
+
 import httpx
 
 from backend.clients.redis_client import redis_client
@@ -13,114 +15,170 @@ OPENWEATHER_CURRENT_URL = "https://api.openweathermap.org/data/2.5/weather"
 OPENWEATHER_FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
 
 
-def get_current_weather(city: str) -> Dict[str, Any]:
-    """Retrieve current weather observation for a city.
+def get_current_weather(city: str) -> dict[str, Any]:
+    """Retrieve current weather conditions for a city."""
 
-    Args:
-        city: City name.
+    city = city.strip()
 
-    Returns:
-        Dict with temperature, condition, humidity, wind_speed, and source.
-    """
+    if not city:
+        return {"error": "City name cannot be empty."}
+
     if not settings.is_openweather_configured:
         return {"error": "OpenWeather API key not configured."}
 
-    cache_key = f"weather:current:{city.lower().strip()}"
+    cache_key = f"weather:current:{city.lower()}"
     cached = redis_client.get(cache_key)
-    if cached is not None and isinstance(cached, dict):
+
+    if isinstance(cached, dict):
         logger.info("Retrieved current weather from cache for %s", city)
         return cached
 
     params = {
-        "q": city.strip(),
+        "q": city,
         "appid": settings.OPENWEATHER_API_KEY,
         "units": "metric",
     }
 
     try:
         with httpx.Client(timeout=settings.EXTERNAL_API_TIMEOUT) as client:
-            resp = client.get(OPENWEATHER_CURRENT_URL, params=params)
+            response = client.get(OPENWEATHER_CURRENT_URL, params=params)
 
-        if resp.status_code == 404:
+        if response.status_code == 404:
             return {"error": f"City '{city}' not found by OpenWeather API."}
-        if resp.status_code != 200:
-            return {"error": f"OpenWeather HTTP error {resp.status_code}: {resp.text[:150]}"}
 
-        data = resp.json()
+        response.raise_for_status()
+
+        data = response.json()
         main = data.get("main", {})
-        weather_list = data.get("weather", [{}])
+        weather_list = data.get("weather", [])
         wind = data.get("wind", {})
 
         result = {
             "temperature_celsius": main.get("temp"),
-            "condition": weather_list[0].get("description", "").title() if weather_list else "Clear",
+            "condition": (
+                weather_list[0].get("description", "").title()
+                if weather_list
+                else "Unknown"
+            ),
             "humidity": main.get("humidity"),
             "wind_speed_mps": wind.get("speed"),
             "city": data.get("name", city),
             "source": "OpenWeather API",
         }
 
-        redis_client.set(cache_key, result, ttl_seconds=settings.CACHE_TTL_WEATHER)
+        redis_client.set(
+            cache_key,
+            result,
+            ttl_seconds=settings.CACHE_TTL_WEATHER,
+        )
+
         return result
-    except Exception as e:
-        logger.error("OpenWeather API error for %s: %s", city, e)
-        return {"error": str(e)}
+
+    except httpx.TimeoutException:
+        logger.exception("Weather request timed out for %s", city)
+        return {"error": "OpenWeather request timed out."}
+
+    except httpx.HTTPStatusError as exc:
+        logger.exception("OpenWeather HTTP error for %s", city)
+        return {"error": f"OpenWeather HTTP error: {exc.response.status_code}"}
+
+    except Exception:
+        logger.exception("OpenWeather API error for %s", city)
+        return {"error": "Unable to retrieve current weather."}
 
 
-def get_forecast(city: str) -> Dict[str, Any]:
-    """Retrieve 5-day / 3-hour forecast for a city.
+def get_forecast(city: str) -> dict[str, Any]:
+    """Retrieve and summarize the 5-day, 3-hour weather forecast."""
 
-    Args:
-        city: City name.
+    city = city.strip()
 
-    Returns:
-        Dict with forecast breakdown and temperature trends.
-    """
+    if not city:
+        return {"error": "City name cannot be empty."}
+
     if not settings.is_openweather_configured:
         return {"error": "OpenWeather API key not configured."}
 
-    cache_key = f"weather:forecast:{city.lower().strip()}"
+    cache_key = f"weather:forecast:{city.lower()}"
     cached = redis_client.get(cache_key)
-    if cached is not None and isinstance(cached, dict):
+
+    if isinstance(cached, dict):
         logger.info("Retrieved forecast from cache for %s", city)
         return cached
 
     params = {
-        "q": city.strip(),
+        "q": city,
         "appid": settings.OPENWEATHER_API_KEY,
         "units": "metric",
     }
 
     try:
         with httpx.Client(timeout=settings.EXTERNAL_API_TIMEOUT) as client:
-            resp = client.get(OPENWEATHER_FORECAST_URL, params=params)
+            response = client.get(OPENWEATHER_FORECAST_URL, params=params)
 
-        if resp.status_code != 200:
-            return {"error": f"OpenWeather forecast error {resp.status_code}"}
+        response.raise_for_status()
 
-        data = resp.json()
+        data = response.json()
         entries = data.get("list", [])
-        daily_temps = []
+
+        if not entries:
+            return {"error": "No forecast data available for this city."}
+
+        temperatures = []
         conditions = []
 
-        for item in entries[:8]:  # Next 24 hours sample
-            daily_temps.append(item.get("main", {}).get("temp", 0))
-            if item.get("weather"):
-                conditions.append(item["weather"][0].get("main"))
+        for item in entries:
+            temperature = item.get("main", {}).get("temp")
 
-        avg_temp = round(sum(daily_temps) / len(daily_temps), 1) if daily_temps else None
-        main_condition = max(set(conditions), key=conditions.count) if conditions else "Clear"
+            if temperature is not None:
+                temperatures.append(temperature)
+
+            weather = item.get("weather", [])
+            if weather:
+                condition = weather[0].get("main")
+                if condition:
+                    conditions.append(condition)
+
+        average_temp = (
+            round(sum(temperatures) / len(temperatures), 1)
+            if temperatures
+            else None
+        )
+
+        main_condition = (
+            max(set(conditions), key=conditions.count)
+            if conditions
+            else "Unknown"
+        )
 
         result = {
-            "forecast_summary": f"Next 5-day trend: Expected avg temp around {avg_temp}°C with predominant {main_condition} conditions.",
+            "forecast_summary": (
+                f"5-day forecast: Average temperature around "
+                f"{average_temp}°C with predominantly "
+                f"{main_condition} conditions."
+            ),
             "forecast_available": True,
-            "average_temp_celsius": avg_temp,
+            "average_temp_celsius": average_temp,
             "source": "OpenWeather 5-Day Forecast API",
         }
 
-        redis_client.set(cache_key, result, ttl_seconds=settings.CACHE_TTL_WEATHER)
-        return result
-    except Exception as e:
-        logger.error("OpenWeather forecast error for %s: %s", city, e)
-        return {"error": str(e)}
+        redis_client.set(
+            cache_key,
+            result,
+            ttl_seconds=settings.CACHE_TTL_WEATHER,
+        )
 
+        return result
+
+    except httpx.TimeoutException:
+        logger.exception("Weather forecast request timed out for %s", city)
+        return {"error": "OpenWeather forecast request timed out."}
+
+    except httpx.HTTPStatusError as exc:
+        logger.exception("OpenWeather forecast HTTP error for %s", city)
+        return {
+            "error": f"OpenWeather forecast HTTP error: {exc.response.status_code}"
+        }
+
+    except Exception:
+        logger.exception("OpenWeather forecast error for %s", city)
+        return {"error": "Unable to retrieve weather forecast."}

@@ -1,23 +1,19 @@
-"""Sidebar navigation and system observability panel."""
+
+"""Sidebar navigation and system status panel."""
 
 import os
-from dotenv import load_dotenv
+
 import streamlit as st
+
 from frontend.services.api_client import api_client
 from frontend.utils.session import clear_current_trip
 
-# Ensure .env variables are loaded
-load_dotenv()
-
 
 def render_sidebar() -> str:
-    """Render application sidebar with navigation and live infrastructure status.
+    """Render navigation and backend infrastructure status."""
 
-    Returns:
-        Selected page navigation string.
-    """
     with st.sidebar:
-        st.markdown("### 🧭 Navigation")
+        st.markdown("### Navigation")
 
         pages = [
             "✨ New Trip",
@@ -26,67 +22,101 @@ def render_sidebar() -> str:
             "💬 Chat Assistant",
         ]
 
-        current = st.session_state.get("current_page", "✨ New Trip")
-        idx = pages.index(current) if current in pages else 0
+        current_page = st.session_state.get(
+            "current_page",
+            "✨ New Trip",
+        )
 
         selected_page = st.radio(
             "Select View",
             options=pages,
-            index=idx,
+            index=(
+                pages.index(current_page)
+                if current_page in pages
+                else 0
+            ),
             label_visibility="collapsed",
         )
+
         st.session_state["current_page"] = selected_page
 
         st.divider()
 
-        # Quick Actions
-        if st.session_state.get("current_trip"):
-            active_dest = st.session_state["current_trip"].get("destination", "Current Trip")
-            st.markdown(f"**Active Plan:** `{active_dest}`")
-            if st.button("➕ Plan Another Trip", use_container_width=True):
+        current_trip = st.session_state.get("current_trip")
+
+        if current_trip:
+            active_destination = current_trip.get(
+                "destination",
+                "Current Trip",
+            )
+
+            st.markdown(f"**Active Plan:** `{active_destination}`")
+
+            if st.button(
+                "Plan Another Trip",
+                use_container_width=True,
+            ):
                 clear_current_trip()
                 st.session_state["current_page"] = "✨ New Trip"
                 st.rerun()
 
         st.divider()
 
-        # Infrastructure Health Monitor
-        st.markdown("### ⚡ System Status")
+        st.markdown("### System Status")
+
         health = api_client.check_backend_health()
 
-        b_status = health.get("backend", "offline")
-        d_status = health.get("database", "offline")
-        r_status = health.get("redis", "offline")
-        llm_model = health.get("model") or os.getenv("GEMINI_MODEL") or "gemini-2.5-flash"
+        backend_status = str(health.get("backend", "offline"))
+        database_status = str(health.get("database", "offline"))
+        redis_status = str(health.get("redis", "offline"))
 
-        # Color codes
-        def get_badge(stat: str) -> str:
-            if stat.startswith("connected") or stat in ["operational"]:
-                return f"<span style='color: #10B981; font-weight: 600;'>● {stat.title()}</span>"
-            elif stat in ["degraded", "disconnected"]:
-                return f"<span style='color: #F59E0B; font-weight: 600;'>● {stat.title()}</span>"
-            return f"<span style='color: #EF4444; font-weight: 600;'>● {stat.title()}</span>"
+        llm_model = (
+            health.get("model")
+            or os.getenv("GEMINI_MODEL")
+            or "gemini-2.5-flash"
+        )
 
-        def get_cache_badge(stat: str) -> str:
-            if stat == "connected":
-                return "<span style='color: #10B981; font-weight: 600;'>● Connected (Redis)</span>"
-            return "<span style='color: #94A3B8; font-weight: 500;'>○ Direct Mode (No Cache)</span>"
+        def get_status_badge(status: str) -> str:
+            """Return HTML badge for infrastructure status."""
 
-        db_label = "Database (SQLite)" if "sqlite" in os.getenv("DATABASE_URL", "").lower() else "Database"
+            if status.startswith("connected") or status == "operational":
+                color = "#10B981"
+            elif status in ("degraded", "disconnected"):
+                color = "#F59E0B"
+            else:
+                color = "#EF4444"
+
+            return (
+                f"<span style='color:{color};font-weight:600;'>"
+                f"● {status.title()}</span>"
+            )
+
+        def get_cache_badge(status: str) -> str:
+            """Return the Redis cache status badge."""
+
+            if status == "connected":
+                return (
+                    "<span style='color:#10B981;font-weight:600;'>"
+                    "● Connected (Redis)</span>"
+                )
+
+            return (
+                "<span style='color:#94A3B8;font-weight:500;'>"
+                "○ Direct Mode (No Cache)</span>"
+            )
 
         st.markdown(
             f"""
-            <div style='font-size: 0.85rem; line-height: 1.8;'>
-                <div>Backend: {get_badge(b_status)}</div>
-                <div>{db_label}: {get_badge(d_status)}</div>
-                <div>Cache: {get_cache_badge(r_status)}</div>
-                <div>LLM: <span style='color: #10B981; font-weight: 600;'>● {llm_model}</span></div>
+            <div style="font-size:0.85rem;line-height:1.8;">
+                <div>Backend: {get_status_badge(backend_status)}</div>
+                <div>Database (PostgreSQL): {get_status_badge(database_status)}</div>
+                <div>Cache: {get_cache_badge(redis_status)}</div>
+                <div>LLM: {llm_model}</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        st.caption("AI-Powered Multi-Agent Architecture v1.0")
+        st.caption("AI Multi-Agent Travel Planner")
 
     return selected_page
-

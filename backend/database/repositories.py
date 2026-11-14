@@ -1,9 +1,10 @@
-"""Database repository layer for managing Trips and Conversations."""
+"""Database repository layer for trips and conversations."""
 
 import uuid
-from typing import Any, Dict, List, Optional
-from sqlalchemy.orm import Session
+from typing import Any
+
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from backend.database.models import ConversationModel, TripModel
 from backend.utils.exceptions import DatabaseError
@@ -11,7 +12,7 @@ from backend.utils.logger import logger
 
 
 class TripRepository:
-    """Repository managing Trip persistence operations."""
+    """Handle database operations for saved trips."""
 
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -26,10 +27,10 @@ class TripRepository:
         travellers: int,
         budget: float,
         currency: str,
-        preferences: Optional[str],
-        travel_plan_json: Dict[str, Any],
+        preferences: str | None,
+        travel_plan_json: dict[str, Any],
     ) -> TripModel:
-        """Create and persist a new trip record."""
+        """Create and persist a trip."""
         try:
             trip = TripModel(
                 id=trip_id,
@@ -43,26 +44,36 @@ class TripRepository:
                 preferences=preferences,
                 travel_plan_json=travel_plan_json,
             )
+
             self.db.add(trip)
             self.db.commit()
             self.db.refresh(trip)
-            logger.info("Successfully persisted trip with id: %s", trip.id)
+
+            logger.info("Trip persisted successfully: %s", trip_id)
             return trip
-        except SQLAlchemyError as e:
+
+        except SQLAlchemyError as exc:
             self.db.rollback()
-            logger.error("Failed to create trip record %s: %s", trip_id, e)
-            raise DatabaseError(f"Failed to persist trip: {str(e)}")
+            logger.exception("Failed to create trip: %s", trip_id)
+            raise DatabaseError("Failed to persist trip.") from exc
 
-    def get_by_id(self, trip_id: str) -> Optional[TripModel]:
-        """Fetch trip record by unique ID."""
+    def get_by_id(self, trip_id: str) -> TripModel | None:
+        """Retrieve a trip by its ID."""
         try:
-            return self.db.query(TripModel).filter(TripModel.id == trip_id).first()
-        except SQLAlchemyError as e:
-            logger.error("Database query failed for trip %s: %s", trip_id, e)
-            raise DatabaseError(f"Error retrieving trip: {str(e)}")
+            return (
+                self.db.query(TripModel)
+                .filter(TripModel.id == trip_id)
+                .first()
+            )
+        except SQLAlchemyError as exc:
+            logger.exception("Failed to retrieve trip: %s", trip_id)
+            raise DatabaseError("Failed to retrieve trip.") from exc
 
-    def get_all(self, limit: int = 100) -> List[TripModel]:
-        """Fetch all saved trips ordered by latest creation."""
+    def get_all(self, limit: int = 100) -> list[TripModel]:
+        """Retrieve saved trips, newest first."""
+        if limit < 1:
+            raise ValueError("Limit must be greater than zero.")
+
         try:
             return (
                 self.db.query(TripModel)
@@ -70,73 +81,105 @@ class TripRepository:
                 .limit(limit)
                 .all()
             )
-        except SQLAlchemyError as e:
-            logger.error("Database query failed for listing trips: %s", e)
-            raise DatabaseError(f"Error listing trips: {str(e)}")
+        except SQLAlchemyError as exc:
+            logger.exception("Failed to retrieve trips.")
+            raise DatabaseError("Failed to list trips.") from exc
 
-    def update(self, trip_id: str, travel_plan_json: Dict[str, Any]) -> Optional[TripModel]:
-        """Update existing trip's travel plan JSON."""
+    def update(
+        self,
+        trip_id: str,
+        travel_plan_json: dict[str, Any],
+    ) -> TripModel | None:
+        """Update the generated travel plan for a trip."""
         try:
             trip = self.get_by_id(trip_id)
-            if not trip:
+
+            if trip is None:
                 return None
+
             trip.travel_plan_json = travel_plan_json
             self.db.commit()
             self.db.refresh(trip)
+
             return trip
-        except SQLAlchemyError as e:
+
+        except SQLAlchemyError as exc:
             self.db.rollback()
-            logger.error("Database update failed for trip %s: %s", trip_id, e)
-            raise DatabaseError(f"Error updating trip: {str(e)}")
+            logger.exception("Failed to update trip: %s", trip_id)
+            raise DatabaseError("Failed to update trip.") from exc
 
     def delete(self, trip_id: str) -> bool:
-        """Delete a trip by unique ID."""
+        """Delete a trip by its ID."""
         try:
             trip = self.get_by_id(trip_id)
-            if not trip:
+
+            if trip is None:
                 return False
+
             self.db.delete(trip)
             self.db.commit()
-            logger.info("Successfully deleted trip with id: %s", trip_id)
+
+            logger.info("Trip deleted successfully: %s", trip_id)
             return True
-        except SQLAlchemyError as e:
+
+        except SQLAlchemyError as exc:
             self.db.rollback()
-            logger.error("Database deletion failed for trip %s: %s", trip_id, e)
-            raise DatabaseError(f"Error deleting trip: {str(e)}")
+            logger.exception("Failed to delete trip: %s", trip_id)
+            raise DatabaseError("Failed to delete trip.") from exc
 
 
 class ConversationRepository:
-    """Repository managing Conversation thread mapping."""
+    """Handle database operations for conversation threads."""
 
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def create(self, thread_id: str, trip_id: Optional[str] = None) -> ConversationModel:
-        """Create or register a conversation thread."""
+    def create(
+        self,
+        thread_id: str,
+        trip_id: str | None = None,
+    ) -> ConversationModel:
+        """Register a conversation thread if it does not exist."""
         try:
             existing = self.get_by_thread_id(thread_id)
-            if existing:
+
+            if existing is not None:
                 return existing
 
-            conv = ConversationModel(
+            conversation = ConversationModel(
                 id=str(uuid.uuid4()),
                 thread_id=thread_id,
                 trip_id=trip_id,
             )
-            self.db.add(conv)
+
+            self.db.add(conversation)
             self.db.commit()
-            self.db.refresh(conv)
-            return conv
-        except SQLAlchemyError as e:
+            self.db.refresh(conversation)
+
+            return conversation
+
+        except SQLAlchemyError as exc:
             self.db.rollback()
-            logger.error("Failed to register conversation thread %s: %s", thread_id, e)
-            raise DatabaseError(f"Error registering conversation: {str(e)}")
+            logger.exception(
+                "Failed to register conversation: %s",
+                thread_id,
+            )
+            raise DatabaseError("Failed to register conversation.") from exc
 
-    def get_by_thread_id(self, thread_id: str) -> Optional[ConversationModel]:
-        """Fetch conversation record by thread ID."""
+    def get_by_thread_id(
+        self,
+        thread_id: str,
+    ) -> ConversationModel | None:
+        """Retrieve a conversation using its thread ID."""
         try:
-            return self.db.query(ConversationModel).filter(ConversationModel.thread_id == thread_id).first()
-        except SQLAlchemyError as e:
-            logger.error("Database query failed for conversation %s: %s", thread_id, e)
-            raise DatabaseError(f"Error retrieving conversation: {str(e)}")
-
+            return (
+                self.db.query(ConversationModel)
+                .filter(ConversationModel.thread_id == thread_id)
+                .first()
+            )
+        except SQLAlchemyError as exc:
+            logger.exception(
+                "Failed to retrieve conversation: %s",
+                thread_id,
+            )
+            raise DatabaseError("Failed to retrieve conversation.") from exc
