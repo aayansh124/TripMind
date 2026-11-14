@@ -50,3 +50,8 @@ dist/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Local Python virtual environment
+/Lib/
+/Scripts/
+/pyvenv.cfg
