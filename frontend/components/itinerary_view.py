@@ -6,12 +6,25 @@ from typing import Any
 import streamlit as st
 
 
-def _safe_number(value: Any) -> float:
-    """Convert a value to a number with a safe default."""
+def _safe_number(value: Any) -> float | None:
+    """Convert a value to a number while preserving unavailable values."""
+    if value is None:
+        return None
+
     try:
-        return float(value or 0)
+        return float(value)
     except (TypeError, ValueError):
-        return 0.0
+        return None
+
+
+def _format_cost(value: Any, currency: str) -> str:
+    """Format a cost or show that it is unavailable."""
+    number = _safe_number(value)
+
+    if number is None:
+        return "Not available"
+
+    return f"{number:,.2f} {currency}"
 
 
 def render_itinerary_view(trip_plan: dict[str, Any]) -> None:
@@ -21,7 +34,7 @@ def render_itinerary_view(trip_plan: dict[str, Any]) -> None:
 
     itinerary_days = trip_plan.get("itinerary") or []
     budget = trip_plan.get("budget") or {}
-    currency = str(budget.get("currency") or "USD")
+    currency = str(budget.get("currency") or "INR")
 
     if not itinerary_days:
         st.info("No detailed daily itinerary items available for this trip.")
@@ -39,6 +52,7 @@ def render_itinerary_view(trip_plan: dict[str, Any]) -> None:
             cal_date = day.get("date")
 
             st.markdown(f"#### Day {day_num}")
+
             if cal_date:
                 st.caption(str(cal_date))
 
@@ -67,15 +81,15 @@ def render_itinerary_view(trip_plan: dict[str, Any]) -> None:
 
             with locations_col:
                 places = day.get("places_to_visit") or []
+
                 if places:
                     st.markdown("**Key Locations**")
                     st.write(", ".join(str(place) for place in places))
 
             with budget_col:
-                daily_total = _safe_number(day.get("daily_total"))
                 st.metric(
                     label="Estimated Daily Cost",
-                    value=f"{daily_total:,.2f} {currency}",
+                    value=_format_cost(day.get("daily_total"), currency),
                 )
 
     st.divider()
@@ -87,37 +101,69 @@ def render_itinerary_view(trip_plan: dict[str, Any]) -> None:
         st.info("Detailed budget breakdown is not available.")
         return
 
-    user_budget = _safe_number(breakdown.get("user_budget"))
-    total_cost = _safe_number(breakdown.get("total_estimated_cost"))
-    hotel_cost = _safe_number(breakdown.get("hotel_estimate"))
-    food_cost = _safe_number(breakdown.get("food_estimate"))
-    transport_cost = _safe_number(breakdown.get("transport_estimate"))
+    comparison_available = breakdown.get("comparison_available", True)
+
+    user_budget = breakdown.get("user_budget")
+    total_cost = breakdown.get("total_estimated_cost")
+    hotel_cost = breakdown.get("hotel_estimate")
+    food_cost = breakdown.get("food_estimate")
+    transport_cost = breakdown.get("transport_estimate")
+    activities_cost = breakdown.get("activities_estimate")
 
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-        st.metric("Allocated Budget", f"{user_budget:,.2f} {currency}")
+        st.metric(
+            "Allocated Budget",
+            _format_cost(user_budget, currency),
+        )
 
     with col2:
-        st.metric("Total Estimated Cost", f"{total_cost:,.2f} {currency}")
+        st.metric(
+            "Total Estimated Cost",
+            _format_cost(total_cost, currency),
+        )
 
     with col3:
-        st.metric("Lodging Estimate", f"{hotel_cost:,.2f} {currency}")
+        st.metric(
+            "Lodging Estimate",
+            _format_cost(hotel_cost, currency),
+        )
 
     with col4:
-        st.metric(
-            "Food & Transit",
-            f"{food_cost + transport_cost:,.2f} {currency}",
-        )
+        if food_cost is not None and transport_cost is not None:
+            combined_cost = (
+                _safe_number(food_cost) + _safe_number(transport_cost)
+            )
+            combined_display = _format_cost(combined_cost, currency)
+        else:
+            combined_display = "Not available"
 
-    if breakdown.get("is_within_budget"):
+        st.metric("Food & Transit", combined_display)
+
+    st.metric(
+        "Activities Estimate",
+        _format_cost(activities_cost, currency),
+    )
+
+    if not comparison_available:
+        st.warning(
+            "This is a partial budget estimate. Some expense categories "
+            "are unavailable, so the total cannot be reliably compared "
+            "with your allocated budget."
+        )
+    elif breakdown.get("is_within_budget") is True:
         st.success("Projected expenses are within your target budget!")
-    else:
-        overrun = _safe_number(breakdown.get("overrun_amount"))
+    elif breakdown.get("is_within_budget") is False:
+        overrun = breakdown.get("overrun_amount")
+
         st.warning(
             f"Projected expenses exceed the target budget by "
-            f"{overrun:,.2f} {currency}. Consider adjusting activities or lodging."
+            f"{_format_cost(overrun, currency)}. "
+            "Consider adjusting activities or lodging."
         )
+    else:
+        st.info("Budget comparison is currently unavailable.")
 
     with st.expander("Detailed Calculation Assumptions"):
         notes = breakdown.get("calculation_notes") or []

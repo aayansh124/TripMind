@@ -11,8 +11,12 @@ from backend.utils.logger import logger
 
 settings = get_settings()
 
-OPENWEATHER_CURRENT_URL = "https://api.openweathermap.org/data/2.5/weather"
-OPENWEATHER_FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
+OPENWEATHER_CURRENT_URL = (
+    f"{settings.OPENWEATHER_BASE_URL.rstrip('/')}/weather"
+)
+OPENWEATHER_FORECAST_URL = (
+    f"{settings.OPENWEATHER_BASE_URL.rstrip('/')}/forecast"
+)
 
 
 def get_current_weather(city: str) -> dict[str, Any]:

@@ -1,6 +1,7 @@
 
 """Sidebar navigation and system status panel."""
 
+import html
 import os
 
 import streamlit as st
@@ -70,7 +71,7 @@ def render_sidebar() -> str:
         database_status = str(health.get("database", "offline"))
         redis_status = str(health.get("redis", "offline"))
 
-        llm_model = (
+        llm_model = str(
             health.get("model")
             or os.getenv("GEMINI_MODEL")
             or "gemini-2.5-flash"
@@ -86,9 +87,11 @@ def render_sidebar() -> str:
             else:
                 color = "#EF4444"
 
+            safe_status = html.escape(status.title())
+
             return (
                 f"<span style='color:{color};font-weight:600;'>"
-                f"● {status.title()}</span>"
+                f"● {safe_status}</span>"
             )
 
         def get_cache_badge(status: str) -> str:
@@ -105,13 +108,15 @@ def render_sidebar() -> str:
                 "○ Direct Mode (No Cache)</span>"
             )
 
+        safe_llm_model = html.escape(llm_model)
+
         st.markdown(
             f"""
             <div style="font-size:0.85rem;line-height:1.8;">
                 <div>Backend: {get_status_badge(backend_status)}</div>
                 <div>Database (PostgreSQL): {get_status_badge(database_status)}</div>
                 <div>Cache: {get_cache_badge(redis_status)}</div>
-                <div>LLM: {llm_model}</div>
+                <div>LLM: {safe_llm_model}</div>
             </div>
             """,
             unsafe_allow_html=True,

@@ -13,49 +13,50 @@ from backend.api.schemas.travel import (
 from backend.utils.logger import logger
 
 
-# Baseline daily expenses per person, with hotel cost per room.
+# Approximate INR fallback estimates for domestic Indian travel.
+# Hotel cost is per room per night; other costs are per person per day.
 DAILY_STYLE_ESTIMATES = {
     TravelStyle.BUDGET: {
-        "hotel": 50.0,
-        "food": 25.0,
-        "transport": 10.0,
-        "activity": 15.0,
+        "hotel": 1500.0,
+        "food": 500.0,
+        "transport": 300.0,
+        "activity": 300.0,
     },
     TravelStyle.STANDARD: {
-        "hotel": 120.0,
-        "food": 55.0,
-        "transport": 20.0,
-        "activity": 35.0,
+        "hotel": 3500.0,
+        "food": 1000.0,
+        "transport": 700.0,
+        "activity": 700.0,
     },
     TravelStyle.LUXURY: {
-        "hotel": 350.0,
-        "food": 150.0,
-        "transport": 70.0,
-        "activity": 100.0,
+        "hotel": 10000.0,
+        "food": 2500.0,
+        "transport": 1800.0,
+        "activity": 2500.0,
     },
     TravelStyle.ADVENTURE: {
-        "hotel": 80.0,
-        "food": 35.0,
-        "transport": 25.0,
-        "activity": 60.0,
+        "hotel": 2500.0,
+        "food": 700.0,
+        "transport": 600.0,
+        "activity": 1200.0,
     },
     TravelStyle.FAMILY: {
-        "hotel": 160.0,
-        "food": 60.0,
-        "transport": 30.0,
-        "activity": 40.0,
+        "hotel": 4500.0,
+        "food": 1200.0,
+        "transport": 900.0,
+        "activity": 1000.0,
     },
     TravelStyle.ROMANTIC: {
-        "hotel": 200.0,
-        "food": 90.0,
-        "transport": 35.0,
-        "activity": 60.0,
+        "hotel": 6000.0,
+        "food": 1500.0,
+        "transport": 800.0,
+        "activity": 1200.0,
     },
     TravelStyle.CULTURAL: {
-        "hotel": 110.0,
-        "food": 50.0,
-        "transport": 20.0,
-        "activity": 45.0,
+        "hotel": 3000.0,
+        "food": 900.0,
+        "transport": 500.0,
+        "activity": 900.0,
     },
 }
 
@@ -70,7 +71,7 @@ def calculate_budget_breakdown(
     itinerary_days: list[DailyItinerary] | None = None,
     flights: list[FlightInformation] | None = None,
 ) -> BudgetBreakdown:
-    """Calculate estimated trip expenses and compare them with the user budget."""
+    """Calculate trip expenses without mixing different currencies."""
 
     if user_budget <= 0:
         raise ValueError("User budget must be greater than zero.")
@@ -81,6 +82,8 @@ def calculate_budget_breakdown(
     if travellers <= 0:
         raise ValueError("Number of travellers must be greater than zero.")
 
+    currency = currency.strip().upper()
+    use_inr_fallbacks = currency == "INR"
     notes: list[str] = []
 
     nights = max(1, duration_days - 1)
@@ -91,9 +94,7 @@ def calculate_budget_breakdown(
         DAILY_STYLE_ESTIMATES[TravelStyle.STANDARD],
     )
 
-    # Calculate flight expenses using verified prices only.
-    flight_cost = None
-
+    # Include verified flight prices in the requested currency only.
     verified_flights = [
         flight
         for flight in (flights or [])
@@ -102,20 +103,18 @@ def calculate_budget_breakdown(
             and flight.price > 0
             and flight.is_verified_price
             and flight.currency
-            and flight.currency.upper() == currency.upper()
+            and flight.currency.strip().upper() == currency
         )
     ]
+
+    flight_cost = None
 
     if verified_flights:
         average_flight_price = (
             sum(flight.price for flight in verified_flights)
             / len(verified_flights)
         )
-
-        flight_cost = round(
-            average_flight_price * travellers,
-            2,
-        )
+        flight_cost = round(average_flight_price * travellers, 2)
 
         notes.append(
             f"Flight estimate uses {len(verified_flights)} "
@@ -123,11 +122,11 @@ def calculate_budget_breakdown(
         )
     else:
         notes.append(
-            "No verified flight prices in the selected currency were "
-            "available. Flight expenses are excluded from the total."
+            f"No verified flight prices in {currency} were available. "
+            "Flight expenses are excluded from the estimate."
         )
 
-    # Calculate accommodation expenses.
+    # Calculate accommodation using matching-currency prices.
     hotel_rates = [
         hotel.estimated_price_per_night
         for hotel in (hotels or [])
@@ -135,122 +134,167 @@ def calculate_budget_breakdown(
             hotel.estimated_price_per_night is not None
             and hotel.estimated_price_per_night > 0
             and hotel.currency
-            and hotel.currency.upper() == currency.upper()
+            and hotel.currency.strip().upper() == currency
         )
     ]
 
     if hotel_rates:
         average_nightly_rate = sum(hotel_rates) / len(hotel_rates)
-
-        hotel_cost = round(
-            average_nightly_rate * nights * rooms,
-            2,
-        )
+        hotel_cost = round(average_nightly_rate * nights * rooms, 2)
 
         notes.append(
             f"Accommodation estimate: {average_nightly_rate:.2f} "
-            f"{currency} per night for {rooms} room(s) "
+            f"{currency} per room per night for {rooms} room(s) "
             f"across {nights} night(s)."
         )
-    else:
+    elif use_inr_fallbacks:
         hotel_cost = round(
             style_defaults["hotel"] * nights * rooms,
             2,
         )
 
         notes.append(
-            f"Accommodation estimate uses the {travel_style.value} "
-            f"baseline of {style_defaults['hotel']:.2f} "
-            f"{currency} per room per night."
+            f"Accommodation uses the approximate {travel_style.value} "
+            f"INR baseline of {style_defaults['hotel']:.2f} "
+            "per room per night."
+        )
+    else:
+        hotel_cost = None
+        notes.append(
+            f"No matching-currency accommodation prices were available "
+            f"for {currency}. No INR fallback was applied."
         )
 
-    # Calculate food, transport, and activity expenses.
-    food_total = 0.0
-    transport_total = 0.0
-    activities_total = 0.0
+    # Read itinerary expenses when available.
+    food_total = None
+    transport_total = None
+    activities_total = None
 
     if itinerary_days:
-        food_total = sum(
+        food_value = sum(
             day.estimated_food_cost for day in itinerary_days
         )
-
-        transport_total = sum(
+        transport_value = sum(
             day.estimated_transport_cost for day in itinerary_days
         )
-
-        activities_total = sum(
+        activities_value = sum(
             day.estimated_activity_cost for day in itinerary_days
         )
 
-    # Apply baseline estimates when itinerary costs are unavailable.
-    if food_total == 0:
-        food_total = (
-            style_defaults["food"] * duration_days * travellers
+        if food_value > 0:
+            food_total = round(food_value, 2)
+
+        if transport_value > 0:
+            transport_total = round(transport_value, 2)
+
+        if activities_value > 0:
+            activities_total = round(activities_value, 2)
+
+    # Apply INR fallbacks only when itinerary costs are unavailable.
+    if use_inr_fallbacks:
+        if food_total is None:
+            food_total = round(
+                style_defaults["food"] * duration_days * travellers,
+                2,
+            )
+            notes.append("Food cost uses an approximate INR baseline.")
+
+        if transport_total is None:
+            transport_total = round(
+                style_defaults["transport"] * duration_days * travellers,
+                2,
+            )
+            notes.append(
+                "Local transport cost uses an approximate INR baseline."
+            )
+
+        if activities_total is None:
+            activities_total = round(
+                style_defaults["activity"] * duration_days * travellers,
+                2,
+            )
+            notes.append(
+                "Activity cost uses an approximate INR baseline."
+            )
+
+    if food_total is None:
+        notes.append(f"Food estimate is unavailable in {currency}.")
+    else:
+        notes.append(f"Food estimate: {food_total:.2f} {currency}.")
+
+    if transport_total is None:
+        notes.append(f"Transport estimate is unavailable in {currency}.")
+    else:
+        notes.append(
+            f"Local transport estimate: {transport_total:.2f} {currency}."
         )
 
-    if transport_total == 0:
-        transport_total = (
-            style_defaults["transport"] * duration_days * travellers
+    if activities_total is None:
+        notes.append(f"Activity estimate is unavailable in {currency}.")
+    else:
+        notes.append(
+            f"Activities estimate: {activities_total:.2f} {currency}."
         )
 
-    if activities_total == 0:
-        activities_total = (
-            style_defaults["activity"] * duration_days * travellers
-        )
-
-    food_total = round(food_total, 2)
-    transport_total = round(transport_total, 2)
-    activities_total = round(activities_total, 2)
-
-    notes.extend(
-        [
-            f"Food estimate: {food_total:.2f} {currency}.",
-            f"Local transport estimate: {transport_total:.2f} {currency}.",
-            f"Activities estimate: {activities_total:.2f} {currency}.",
-        ]
-    )
-
-    # Calculate the total estimated trip cost.
-    total_components = [
+    # Sum only known expenses; mark the comparison incomplete if any
+    # required expense category is unavailable.
+    expense_components = [
         hotel_cost,
         food_total,
         transport_total,
         activities_total,
+        flight_cost,
     ]
 
-    if flight_cost is not None:
-        total_components.append(flight_cost)
+    comparison_available = all(
+        component is not None for component in expense_components
+    )
 
-    total_estimated = round(sum(total_components), 2)
-
-    is_within_budget = total_estimated <= user_budget
-
-    overrun_amount = round(
-        max(0.0, total_estimated - user_budget),
+    total_estimated = round(
+        sum(
+            component
+            for component in expense_components
+            if component is not None
+        ),
         2,
     )
 
-    if is_within_budget:
-        remaining_budget = round(
-            user_budget - total_estimated,
+    if comparison_available:
+        is_within_budget = total_estimated <= user_budget
+        overrun_amount = round(
+            max(0.0, total_estimated - user_budget),
             2,
         )
 
-        notes.append(
-            f"Estimated budget remaining: {remaining_budget:.2f} {currency}."
-        )
+        if is_within_budget:
+            remaining_budget = round(
+                user_budget - total_estimated,
+                2,
+            )
+            notes.append(
+                f"Estimated budget remaining: {remaining_budget:.2f} "
+                f"{currency}."
+            )
+        else:
+            notes.append(
+                f"Estimated expenses exceed the budget by "
+                f"{overrun_amount:.2f} {currency}."
+            )
     else:
+        is_within_budget = None
+        overrun_amount = None
         notes.append(
-            f"Estimated expenses exceed the budget by "
-            f"{overrun_amount:.2f} {currency}."
+            "Budget comparison is incomplete because one or more "
+            "expense categories are unavailable."
         )
 
     logger.info(
-        "Budget calculated: allocated=%.2f %s, estimated=%.2f, within_budget=%s",
+        "Budget calculated: allocated=%.2f %s, estimated=%.2f, "
+        "comparison_available=%s",
         user_budget,
         currency,
         total_estimated,
-        is_within_budget,
+        comparison_available,
     )
 
     return BudgetBreakdown(
@@ -262,6 +306,7 @@ def calculate_budget_breakdown(
         transport_estimate=transport_total,
         activities_estimate=activities_total,
         total_estimated_cost=total_estimated,
+        comparison_available=comparison_available,
         is_within_budget=is_within_budget,
         overrun_amount=overrun_amount,
         calculation_notes=notes,

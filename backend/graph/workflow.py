@@ -151,9 +151,11 @@ def build_travel_workflow(checkpointer: PostgresSaver):
     builder.add_edge("destination_agent", "hotel_agent")
     builder.add_edge("destination_agent", "weather_agent")
 
-    builder.add_edge("flight_agent", "itinerary_agent")
-    builder.add_edge("hotel_agent", "itinerary_agent")
-    builder.add_edge("weather_agent", "itinerary_agent")
+    # Wait for all specialist agents before generating the itinerary.
+    builder.add_edge(
+        ["flight_agent", "hotel_agent", "weather_agent"],
+        "itinerary_agent",
+    )
 
     builder.add_edge("itinerary_agent", "response_agent")
     builder.add_edge("response_agent", END)

@@ -65,9 +65,7 @@ async def run_response_agent(
                 "Destination information is partially available."
             )
     else:
-        warnings.append(
-            "Destination research was unavailable."
-        )
+        warnings.append("Destination research was unavailable.")
 
     # Process flight information.
     flights_data: list[FlightInformation] = []
@@ -102,6 +100,9 @@ async def run_response_agent(
             "No accommodation recommendations were retrieved. "
             "Check hotel options directly before traveling."
         )
+
+    if hotel_res and hotel_res.limitations:
+        warnings.append(hotel_res.limitations)
 
     # Process weather information.
     weather_info: WeatherInformation | None = None
@@ -140,7 +141,14 @@ async def run_response_agent(
         flights=flights_data,
     )
 
-    if not budget_breakdown.is_within_budget:
+    # Handle complete and incomplete budget comparisons separately.
+    if not budget_breakdown.comparison_available:
+        warnings.append(
+            "The budget estimate is incomplete because some expense "
+            "categories are unavailable. The total should not be treated "
+            "as a complete comparison against your allocated budget."
+        )
+    elif budget_breakdown.is_within_budget is False:
         warnings.append(
             f"Estimated expenses exceed the allocated budget by "
             f"{budget_breakdown.overrun_amount:.2f} "
@@ -149,11 +157,15 @@ async def run_response_agent(
 
     # Compile practical travel tips.
     travel_tips = [
-        f"Keep digital and physical copies of travel documents "
-        f"when traveling to {request.destination}.",
-        f"Review your travel arrangements before departure.",
-        "Confirm accommodation bookings and transport schedules "
-        "directly with the respective providers.",
+        (
+            f"Keep digital and physical copies of travel documents "
+            f"when traveling to {request.destination}."
+        ),
+        "Review your travel arrangements before departure.",
+        (
+            "Confirm accommodation bookings and transport schedules "
+            "directly with the respective providers."
+        ),
     ]
 
     if weather_info and weather_info.considerations:
@@ -162,8 +174,9 @@ async def run_response_agent(
     if destination_overview.cultural_tips:
         travel_tips.extend(destination_overview.cultural_tips[:3])
 
-    # Remove duplicate sources while preserving their order.
+    # Remove duplicate sources and warnings while preserving their order.
     unique_sources = list(dict.fromkeys(sources))
+    unique_warnings = list(dict.fromkeys(warnings))
 
     # Determine overall execution status.
     agent_statuses = [
@@ -175,7 +188,7 @@ async def run_response_agent(
 
     if (
         all(status == AgentStatus.SUCCESS for status in agent_statuses)
-        and not warnings
+        and not unique_warnings
     ):
         execution_status = AgentStatus.SUCCESS
     else:
@@ -203,7 +216,7 @@ async def run_response_agent(
         budget_breakdown=budget_breakdown,
         travel_tips=travel_tips,
         sources=unique_sources,
-        warnings=warnings,
+        warnings=unique_warnings,
         execution_status=execution_status,
     )
 

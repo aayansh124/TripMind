@@ -85,10 +85,10 @@ def render_trip_form() -> dict[str, Any] | None:
 
             with currency_col:
                 currency = st.selectbox(
-                    "Currency",
-                    options=["USD", "EUR", "GBP", "INR", "JPY", "CAD", "AUD"],
-                    index=0,
-                )
+                                "Currency",
+                                options=["INR", "USD", "EUR", "GBP", "JPY", "CAD", "AUD"],
+                                index=0,
+                        )
 
             accommodation_pref = st.text_input(
                 "Accommodation Preference",

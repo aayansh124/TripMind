@@ -5,7 +5,11 @@ import os
 from typing import Any
 
 import httpx
+from dotenv import load_dotenv
 
+
+# Load environment variables before reading backend configuration.
+load_dotenv()
 
 BACKEND_HOST = os.getenv("BACKEND_HOST", "127.0.0.1")
 BACKEND_PORT = os.getenv("BACKEND_PORT", "8000")

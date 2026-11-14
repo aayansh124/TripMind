@@ -63,16 +63,24 @@ def render_chat_interface(trip_id: str | None = None) -> None:
                 trip_id=trip_id,
             )
 
-        if "error" in response:
-            assistant_reply = (
+        if not isinstance(response, dict):
+            st.error("The backend returned an invalid response.")
+            return
+
+        if response.get("error"):
+            st.error(
                 f"Unable to process your request: {response['error']}"
             )
-            st.error(assistant_reply)
-        else:
-            assistant_reply = response.get(
-                "assistant_response",
-                "I have received your message.",
-            )
-            st.markdown(assistant_reply)
+            return
 
+        assistant_reply = response.get(
+            "assistant_response",
+            "I have received your message.",
+        )
+
+        if not isinstance(assistant_reply, str) or not assistant_reply.strip():
+            st.error("The assistant returned an empty response.")
+            return
+
+        st.markdown(assistant_reply)
         add_chat_message("assistant", assistant_reply)

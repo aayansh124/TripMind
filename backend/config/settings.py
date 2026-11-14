@@ -1,3 +1,4 @@
+
 """Application configuration and environment settings."""
 
 from functools import lru_cache
@@ -39,6 +40,7 @@ class Settings(BaseSettings):
     # Cache TTL Configuration (seconds)
     CACHE_TTL_WEATHER: int = 1800
     CACHE_TTL_HOTEL: int = 3600
+    CACHE_TTL_FLIGHT: int = 900
     CACHE_TTL_DESTINATION: int = 86400
 
     # Logging

@@ -34,8 +34,6 @@ class AgentStatus(str, Enum):
     FAILED = "failed"
 
 
-# Specialist agent output schemas
-
 class DestinationOverview(BaseModel):
     """Detailed destination overview and attraction recommendations."""
 
@@ -105,6 +103,7 @@ class HotelResult(BaseModel):
     data: list[HotelInformation] = Field(default_factory=list)
     source: str = "Tavily Search / Web Discovery"
     error: str | None = None
+    limitations: str | None = None
     disclaimer: str = (
         "Hotel recommendations are sourced from web discovery and do not "
         "represent guaranteed real-time inventory or final booking rates."
@@ -167,16 +166,15 @@ class BudgetBreakdown(BaseModel):
     currency: str = "INR"
     flight_estimate: float | None = None
     hotel_estimate: float | None = None
-    food_estimate: float = 0.0
-    transport_estimate: float = 0.0
-    activities_estimate: float = 0.0
+    food_estimate: float | None = None
+    transport_estimate: float | None = None
+    activities_estimate: float | None = None
     total_estimated_cost: float = 0.0
-    is_within_budget: bool = True
-    overrun_amount: float = 0.0
+    comparison_available: bool = True
+    is_within_budget: bool | None = True
+    overrun_amount: float | None = 0.0
     calculation_notes: list[str] = Field(default_factory=list)
 
-
-# Travel request and overall response schemas
 
 class TravelRequest(BaseModel):
     """User input for generating a travel plan."""

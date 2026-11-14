@@ -39,7 +39,6 @@ def search_flights(
         )
 
         logger.warning("AviationStack API key is not configured.")
-
         return result
 
     origin = origin.strip().upper()
@@ -65,11 +64,9 @@ def search_flights(
         "limit": limit,
     }
 
-    # Apply the departure date when provided.
     if departure_date:
         params["flight_date"] = departure_date
 
-    # Apply airport filters when IATA codes are provided.
     if len(origin) == 3 and origin.isalpha():
         params["dep_iata"] = origin
 
@@ -94,7 +91,6 @@ def search_flights(
                 "AviationStack returned HTTP status %s",
                 response.status_code,
             )
-
             return result
 
         data = response.json()
@@ -111,7 +107,6 @@ def search_flights(
                 "AviationStack API error: %s",
                 error_message,
             )
-
             return result
 
         raw_flights = data.get("data", [])
@@ -160,7 +155,7 @@ def search_flights(
         redis_client.set(
             cache_key,
             result,
-            ttl_seconds=settings.CACHE_TTL_HOTEL,
+            ttl_seconds=settings.CACHE_TTL_FLIGHT,
         )
 
         logger.info(
@@ -175,7 +170,6 @@ def search_flights(
     except httpx.TimeoutException:
         result["error"] = "AviationStack request timed out."
         logger.exception("AviationStack request timed out.")
-
         return result
 
     except Exception as exc:
@@ -186,5 +180,4 @@ def search_flights(
             origin,
             destination,
         )
-
         return result
