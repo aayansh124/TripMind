@@ -116,29 +116,21 @@ flowchart TD
 
 ```
 
-**---**
+
 
 ## 4. Multi-Agent System Roles
 
 | Agent | Responsibility | Primary Tools & LLM |
+|---|---|---|
+| **Destination Agent** | Cultural analysis, top sights, activity curation matching travel style, and local etiquette. | Gemini 2.5 Flash + Tavily Web Search |
+| **Flight Agent** | Airline timetable retrieval, airport code validation, and flight status tracking. | AviationStack API |
+| **Hotel Agent** | Neighborhood accommodation discovery, price estimation, and booking website URLs. | Tavily Discovery + Gemini Extraction |
+| **Weather Agent** | Current meteorological readings, 5-day forecast horizon check, and climate packing advice. | OpenWeather API |
+| **Itinerary Agent** | Balanced day-wise schedule synthesis (Morning, Afternoon, Evening), grouped by district. | Gemini Structured Output |
+| **Response Agent** | Budget calculation reconciliation, warning audit, and travel tips compilation. | Python Budget Service |
+| **Chat Assistant** | Context-aware conversational follow-up queries maintaining LangGraph thread continuity. | Gemini 2.5 Flash + Checkpointer |
 
-| :--- | :--- | :--- |
 
-| ****Destination Agent**** | Cultural analysis, top sights, activity curation matching travel style, local etiquette. | Gemini 2.5 Flash + Tavily Web Search |
-
-| ****Flight Agent**** | Airline timetable retrieval, airport code validation, flight status tracking. | AviationStack API |
-
-| ****Hotel Agent**** | Neighborhood accommodation discovery, price estimation, booking website URLs. | Tavily Discovery + Gemini Extraction |
-
-| ****Weather Agent**** | Current meteorological readings, 5-day forecast horizon check, climate packing advice. | OpenWeather API |
-
-| ****Itinerary Agent**** | Balanced day-wise schedule synthesis (Morning, Afternoon, Evening) grouped by district. | Gemini Structured Output |
-
-| ****Response Agent**** | Budget calculation reconciliation, warning audit, travel tips compilation. | Python Budget Service |
-
-| ****Chat Assistant**** | Context-aware conversational follow-up queries maintaining LangGraph thread continuity. | Gemini 2.5 Flash + Checkpointer |
-
-**---**
 
 ## 5. Technology Stack
 
