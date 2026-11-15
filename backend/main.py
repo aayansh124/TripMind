@@ -39,7 +39,8 @@ async def lifespan(app: FastAPI):
 
         logger.info("PostgreSQL connection established.")
 
-        initialize_workflows()
+        # Initialize asynchronous LangGraph PostgreSQL checkpointing.
+        await initialize_workflows()
 
         redis_status = redis_client.is_healthy()
         logger.info("Redis status: %s", redis_status)
@@ -49,7 +50,9 @@ async def lifespan(app: FastAPI):
     finally:
         logger.info("Shutting down Travel Planner backend.")
 
-        close_workflows()
+        # Close asynchronous workflow resources.
+        await close_workflows()
+
         redis_client.close()
         engine.dispose()
 

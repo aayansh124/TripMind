@@ -3,139 +3,139 @@
 
 import html
 from typing import Any
+from urllib.parse import urlparse
 
 import streamlit as st
 
 
+def _format_price(price: Any, currency: str) -> str:
+    """Format the nightly price safely."""
+    if price is None:
+        return "Rate on request"
+
+    try:
+        amount = float(price)
+        if amount <= 0:
+            return "Rate on request"
+
+        return f"~{amount:,.2f} {currency}/night"
+
+    except (TypeError, ValueError):
+        return "Rate on request"
+
+
+def _format_rating(rating: Any) -> str:
+    """Format a valid hotel rating."""
+    if rating is None:
+        return "Unrated"
+
+    try:
+        value = float(rating)
+        if 0 <= value <= 5:
+            return f"{value:.1f}/5.0"
+
+    except (TypeError, ValueError):
+        pass
+
+    return "Unrated"
+
+
+def _valid_website(value: Any) -> str | None:
+    """Return a valid HTTP or HTTPS website URL."""
+    if not isinstance(value, str):
+        return None
+
+    url = value.strip()
+    parsed = urlparse(url)
+
+    if parsed.scheme in ("http", "https") and parsed.netloc:
+        return url
+
+    return None
+
+
 def render_hotel_view(trip_plan: dict[str, Any]) -> None:
-    """Render recommended hotels and accommodation sources."""
+    """Render recommended hotels using native Streamlit components."""
 
     st.markdown("### Accommodation Recommendations")
     st.caption(
-        "Discovered through web search based on travel style and budget."
+        "Discover accommodation options based on your destination, "
+        "travel style and budget."
     )
 
     hotels = trip_plan.get("hotels") or []
 
     if not hotels:
-        st.info("No hotel recommendations discovered for this destination.")
+        st.info(
+            "No hotel recommendations were found. "
+            "Try searching again or changing your accommodation preference."
+        )
         return
 
-    cols = st.columns(2)
+    columns = st.columns(2)
 
-    for idx, hotel in enumerate(hotels):
-        with cols[idx % 2]:
-            name = html.escape(
-                str(hotel.get("hotel_name") or "Recommended Stay")
+    for index, hotel in enumerate(hotels):
+        with columns[index % 2]:
+            name = str(
+                hotel.get("hotel_name") or "Recommended Stay"
             )
-            location = html.escape(
-                str(hotel.get("location") or "Central Area")
+            location = str(
+                hotel.get("location") or "Location not available"
             )
-            description = html.escape(
-                str(hotel.get("description") or "")
+            description = str(
+                hotel.get("description") or "No description available."
             )
-            currency = html.escape(
-                str(hotel.get("currency") or "USD")
+            currency = str(
+                hotel.get("currency") or "INR"
+            ).upper()
+
+            price = _format_price(
+                hotel.get("estimated_price_per_night"),
+                currency,
             )
 
-            price = hotel.get("estimated_price_per_night")
-            rating = hotel.get("rating")
+            rating = _format_rating(
+                hotel.get("rating")
+            )
 
-            try:
-                price_value = float(price)
-                price_str = (
-                    f"~{price_value:,.2f} {currency}/night"
-                    if price_value > 0
-                    else "Rate on request"
-                )
-            except (TypeError, ValueError):
-                price_str = "Rate on request"
+            website = _valid_website(
+                hotel.get("website") or hotel.get("source_url")
+            )
 
-            try:
-                rating_value = float(rating)
-                rating_str = (
-                    f"{rating_value:.1f}/5.0"
-                    if 0 <= rating_value <= 5
-                    else "Unrated"
-                )
-            except (TypeError, ValueError):
-                rating_str = "Unrated"
+            with st.container(border=True):
+                st.markdown(f"#### {name}")
 
-            website = hotel.get("website") or hotel.get("source_url")
-            website_html = ""
+                st.caption(f"📍 {location}")
 
-            if isinstance(website, str):
-                website = website.strip()
+                st.markdown(description)
 
-                if website.startswith(("https://", "http://")):
-                    safe_url = html.escape(website, quote=True)
-                    website_html = (
-                        f'<a href="{safe_url}" target="_blank" '
-                        'rel="noopener noreferrer" '
-                        'style="background: #3B82F6; color: white; '
-                        'padding: 0.35rem 0.8rem; border-radius: 4px; '
-                        'text-decoration: none; font-size: 0.85rem;">'
-                        "View Stay</a>"
+                st.divider()
+
+                price_col, rating_col = st.columns(2)
+
+                with price_col:
+                    st.markdown("**Estimated price**")
+                    st.markdown(f"### {price}")
+
+                with rating_col:
+                    st.markdown("**Guest rating**")
+                    st.markdown(f"### {rating}")
+
+                if website:
+                    st.link_button(
+                        "View Hotel / Website",
+                        website,
+                        use_container_width=True,
+                    )
+                else:
+                    st.caption(
+                        "Website or booking link not available."
                     )
 
-            st.markdown(
-                f"""
-                <div style="
-                    background: #1E293B;
-                    padding: 1.25rem;
-                    border-radius: 8px;
-                    margin-bottom: 1rem;
-                    border: 1px solid #334155;
-                    min-height: 200px;
-                ">
-                    <div style="
-                        display: flex;
-                        justify-content: space-between;
-                        align-items: flex-start;
-                    ">
-                        <h4 style="margin: 0; color: #F8FAFC;">
-                            {name}
-                        </h4>
-                        <span style="color: #FBBF24; font-weight: 600;">
-                            {rating_str}
-                        </span>
-                    </div>
-
-                    <p style="
-                        color: #94A3B8;
-                        font-size: 0.85rem;
-                    ">
-                        {location}
-                    </p>
-
-                    <p style="
-                        color: #CBD5E1;
-                        font-size: 0.9rem;
-                        line-height: 1.5;
-                    ">
-                        {description}
-                    </p>
-
-                    <div style="
-                        display: flex;
-                        justify-content: space-between;
-                        align-items: center;
-                        margin-top: 1rem;
-                    ">
-                        <span style="
-                            color: #38BDF8;
-                            font-weight: 700;
-                        ">
-                            {price_str}
-                        </span>
-                        {website_html}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+    st.divider()
 
     st.warning(
-        "Hotel recommendations are discovered from public web data. "
-        "Confirm room availability and final prices directly with the property."
+        "These recommendations are collected through web search. "
+        "Prices, ratings and room availability may not be verified. "
+        "Confirm the final details directly with the hotel before booking."
     )

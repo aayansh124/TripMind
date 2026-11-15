@@ -1,9 +1,9 @@
 
-"""Construct LangGraph workflows with PostgreSQL checkpointing."""
+"""Construct LangGraph workflows with asynchronous PostgreSQL checkpointing."""
 
 from psycopg.rows import dict_row
-from psycopg_pool import ConnectionPool
-from langgraph.checkpoint.postgres import PostgresSaver
+from psycopg_pool import AsyncConnectionPool
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
 
 from backend.config.settings import get_settings
@@ -22,8 +22,8 @@ from backend.utils.logger import logger
 
 settings = get_settings()
 
-_connection_pool: ConnectionPool | None = None
-_checkpointer: PostgresSaver | None = None
+_connection_pool: AsyncConnectionPool | None = None
+_checkpointer: AsyncPostgresSaver | None = None
 
 travel_workflow = None
 chat_workflow = None
@@ -32,17 +32,15 @@ chat_workflow = None
 def _get_postgres_connection_string() -> str:
     """Convert the SQLAlchemy PostgreSQL URL to a psycopg connection URL."""
 
-    database_url = settings.DATABASE_URL
-
-    return database_url.replace(
+    return settings.DATABASE_URL.replace(
         "postgresql+psycopg://",
         "postgresql://",
         1,
     )
 
 
-def initialize_workflows() -> None:
-    """Initialize PostgreSQL checkpointing and compile LangGraph workflows."""
+async def initialize_workflows() -> None:
+    """Initialize asynchronous PostgreSQL checkpointing and compile workflows."""
 
     global _connection_pool
     global _checkpointer
@@ -52,24 +50,25 @@ def initialize_workflows() -> None:
     if travel_workflow is not None and chat_workflow is not None:
         return
 
-    logger.info("Initializing PostgreSQL LangGraph checkpointer.")
+    logger.info("Initializing asynchronous PostgreSQL LangGraph checkpointer.")
 
     try:
-        _connection_pool = ConnectionPool(
+        _connection_pool = AsyncConnectionPool(
             conninfo=_get_postgres_connection_string(),
             min_size=1,
             max_size=10,
             kwargs={
                 "autocommit": True,
                 "row_factory": dict_row,
+                "prepare_threshold": 0,
             },
             open=False,
         )
 
-        _connection_pool.open(wait=True)
+        await _connection_pool.open(wait=True)
 
-        _checkpointer = PostgresSaver(_connection_pool)
-        _checkpointer.setup()
+        _checkpointer = AsyncPostgresSaver(_connection_pool)
+        await _checkpointer.setup()
 
         travel_workflow = build_travel_workflow(_checkpointer)
         chat_workflow = build_chat_workflow(_checkpointer)
@@ -80,7 +79,7 @@ def initialize_workflows() -> None:
         logger.exception("Failed to initialize LangGraph workflows.")
 
         if _connection_pool is not None:
-            _connection_pool.close()
+            await _connection_pool.close()
 
         _connection_pool = None
         _checkpointer = None
@@ -90,8 +89,8 @@ def initialize_workflows() -> None:
         raise
 
 
-def close_workflows() -> None:
-    """Close the PostgreSQL checkpoint connection pool."""
+async def close_workflows() -> None:
+    """Close the asynchronous PostgreSQL checkpoint connection pool."""
 
     global _connection_pool
     global _checkpointer
@@ -99,7 +98,7 @@ def close_workflows() -> None:
     global chat_workflow
 
     if _connection_pool is not None:
-        _connection_pool.close()
+        await _connection_pool.close()
 
     _connection_pool = None
     _checkpointer = None
@@ -133,7 +132,7 @@ def get_chat_workflow():
     return chat_workflow
 
 
-def build_travel_workflow(checkpointer: PostgresSaver):
+def build_travel_workflow(checkpointer: AsyncPostgresSaver):
     """Build the multi-agent travel planning graph."""
 
     builder = StateGraph(TravelState)
@@ -167,7 +166,7 @@ def build_travel_workflow(checkpointer: PostgresSaver):
     return compiled_graph
 
 
-def build_chat_workflow(checkpointer: PostgresSaver):
+def build_chat_workflow(checkpointer: AsyncPostgresSaver):
     """Build the conversational follow-up graph."""
 
     builder = StateGraph(TravelState)

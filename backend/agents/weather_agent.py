@@ -70,30 +70,13 @@ async def run_weather_agent(
         humidity = current_data.get("humidity")
         wind_speed = current_data.get("wind_speed_mps")
 
-        considerations = []
-
-        if temperature is not None:
-            if temperature > 28:
-                considerations.append(
-                    "High temperatures expected. Pack breathable clothing, "
-                    "sunscreen, and stay hydrated."
-                )
-            elif temperature < 10:
-                considerations.append(
-                    "Cool to cold conditions expected. Bring warm layers "
-                    "and a wind-resistant jacket."
-                )
-            else:
-                considerations.append(
-                    "Mild temperatures currently observed. "
-                    "Layered casual clothing is recommended."
-                )
-
-        if condition and "rain" in condition.lower():
-            considerations.append(
-                "Rain conditions observed. Carry an umbrella "
-                "or waterproof outerwear."
+        considerations = [
+            (
+                "The displayed temperature and weather conditions are "
+                "current observations, not guaranteed conditions for "
+                "your travel dates."
             )
+        ]
 
         if forecast_available:
             forecast_summary = forecast_data.get("forecast_summary")
@@ -101,13 +84,33 @@ async def run_weather_agent(
             if not forecast_summary:
                 forecast_summary = (
                     "The departure date is within the five-day forecast "
-                    "window, but forecast information could not be retrieved."
+                    "window, but forecast information could not be retrieved. "
+                    "Check the forecast again closer to departure."
                 )
+
+            else:
+                considerations.append(
+                    "Use the available five-day forecast as a general guide. "
+                    "Check updated conditions before departure."
+                )
+
+        elif days_until_departure < 0:
+            forecast_summary = (
+                "The requested departure date has already passed. "
+                "A travel-date forecast cannot be provided."
+            )
+
         else:
             forecast_summary = (
                 f"The departure date is {days_until_departure} days from today. "
                 "It is outside the available five-day forecast window. "
                 "Check the forecast closer to departure."
+            )
+
+            considerations.append(
+                "A forecast for your travel dates is not available yet. "
+                "Avoid relying on current weather observations for packing "
+                "decisions."
             )
 
         weather_info = WeatherInformation(

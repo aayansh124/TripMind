@@ -28,140 +28,226 @@ def _format_cost(value: Any, currency: str) -> str:
 
 
 def render_itinerary_view(trip_plan: dict[str, Any]) -> None:
-    """Render day-wise schedules and budget information."""
+    """Render day-wise schedules and a consistent budget breakdown."""
+
+    budget = trip_plan.get("budget") or {}
+    currency = str(budget.get("currency") or "INR")
+    itinerary_days = trip_plan.get("itinerary") or []
+    breakdown = trip_plan.get("budget_breakdown") or {}
+
+    duration_days = (
+        _safe_number(trip_plan.get("duration_days"))
+        or len(itinerary_days)
+    )
 
     st.markdown("### Day-by-Day Itinerary")
 
-    itinerary_days = trip_plan.get("itinerary") or []
-    budget = trip_plan.get("budget") or {}
-    currency = str(budget.get("currency") or "INR")
+    # Calculate average daily spending from the same totals
+    # used in the financial breakdown.
+    food_cost = _safe_number(breakdown.get("food_estimate"))
+    transport_cost = _safe_number(breakdown.get("transport_estimate"))
+    activities_cost = _safe_number(
+        breakdown.get("activities_estimate")
+    )
+
+    daily_categories = [
+        food_cost,
+        transport_cost,
+        activities_cost,
+    ]
+
+    if duration_days > 0 and all(
+        value is not None for value in daily_categories
+    ):
+        average_daily_spending = (
+            food_cost + transport_cost + activities_cost
+        ) / duration_days
+
+        st.metric(
+            "Average Daily Spending (Excluding Hotel & Flights)",
+            _format_cost(average_daily_spending, currency),
+        )
+
+        st.caption(
+            "This is the average daily cost of food, local transport "
+            "and activities. Accommodation and flights are separate."
+        )
+    else:
+        st.metric(
+            "Average Daily Spending (Excluding Hotel & Flights)",
+            "Not available",
+        )
+
+        st.caption(
+            "Daily spending cannot be calculated because one or more "
+            "expense categories are unavailable."
+        )
 
     if not itinerary_days:
         st.info("No detailed daily itinerary items available for this trip.")
-        return
+    else:
+        tab_labels = [
+            f"Day {day.get('day', index + 1)}"
+            for index, day in enumerate(itinerary_days)
+        ]
 
-    tab_labels = [
-        f"Day {day.get('day', index + 1)}"
-        for index, day in enumerate(itinerary_days)
-    ]
-    tabs = st.tabs(tab_labels)
+        tabs = st.tabs(tab_labels)
 
-    for idx, (tab, day) in enumerate(zip(tabs, itinerary_days)):
-        with tab:
-            day_num = day.get("day", idx + 1)
-            cal_date = day.get("date")
+        for idx, (tab, day) in enumerate(
+            zip(tabs, itinerary_days)
+        ):
+            with tab:
+                day_num = day.get("day", idx + 1)
+                cal_date = day.get("date")
 
-            st.markdown(f"#### Day {day_num}")
+                st.markdown(f"#### Day {day_num}")
 
-            if cal_date:
-                st.caption(str(cal_date))
+                if cal_date:
+                    st.caption(str(cal_date))
 
-            col1, col2, col3 = st.columns(3)
+                col1, col2, col3 = st.columns(3)
 
-            time_periods = [
-                ("Morning", "morning", col1, "Morning arrival or leisure exploration."),
-                ("Afternoon", "afternoon", col2, "Afternoon cultural activities and dining."),
-                ("Evening", "evening", col3, "Evening dining and night walk."),
-            ]
+                time_periods = [
+                    (
+                        "Morning",
+                        "morning",
+                        col1,
+                        "Morning arrival or leisure exploration.",
+                    ),
+                    (
+                        "Afternoon",
+                        "afternoon",
+                        col2,
+                        "Afternoon cultural activities and dining.",
+                    ),
+                    (
+                        "Evening",
+                        "evening",
+                        col3,
+                        "Evening dining and night walk.",
+                    ),
+                ]
 
-            for title, key, column, fallback in time_periods:
-                with column:
-                    st.markdown(f"**{title}**")
-                    activities = day.get(key) or []
+                for title, key, column, fallback in time_periods:
+                    with column:
+                        st.markdown(f"**{title}**")
+                        activities = day.get(key) or []
 
-                    if activities:
-                        for activity in activities:
-                            st.write(f"- {activity}")
-                    else:
-                        st.caption(fallback)
+                        if activities:
+                            for activity in activities:
+                                st.write(f"- {activity}")
+                        else:
+                            st.caption(fallback)
 
-            st.divider()
+                st.divider()
 
-            budget_col, locations_col = st.columns([1, 2])
+                budget_col, locations_col = st.columns([1, 2])
 
-            with locations_col:
-                places = day.get("places_to_visit") or []
+                with locations_col:
+                    places = day.get("places_to_visit") or []
 
-                if places:
-                    st.markdown("**Key Locations**")
-                    st.write(", ".join(str(place) for place in places))
+                    if places:
+                        st.markdown("**Key Locations**")
+                        st.write(
+                            ", ".join(str(place) for place in places)
+                        )
 
-            with budget_col:
-                st.metric(
-                    label="Estimated Daily Cost",
-                    value=_format_cost(day.get("daily_total"), currency),
-                )
+                with budget_col:
+                    st.markdown("**Daily Plan**")
+                    st.caption(
+                        "See the average daily spending above. "
+                        "The trip-wide budget breakdown below is "
+                        "the source for the cost estimates."
+                    )
 
     st.divider()
     st.markdown("### Financial Breakdown & Budget Audit")
-
-    breakdown = trip_plan.get("budget_breakdown") or {}
 
     if not breakdown:
         st.info("Detailed budget breakdown is not available.")
         return
 
-    comparison_available = breakdown.get("comparison_available", True)
+    comparison_available = breakdown.get(
+        "comparison_available",
+        False,
+    )
 
     user_budget = breakdown.get("user_budget")
     total_cost = breakdown.get("total_estimated_cost")
+    flight_cost = breakdown.get("flight_estimate")
     hotel_cost = breakdown.get("hotel_estimate")
     food_cost = breakdown.get("food_estimate")
     transport_cost = breakdown.get("transport_estimate")
     activities_cost = breakdown.get("activities_estimate")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         st.metric(
-            "Allocated Budget",
+            "Your Allocated Budget",
             _format_cost(user_budget, currency),
         )
 
     with col2:
         st.metric(
-            "Total Estimated Cost",
+            "Known Estimated Cost",
             _format_cost(total_cost, currency),
         )
 
     with col3:
         st.metric(
-            "Lodging Estimate",
+            "Flight Estimate",
+            _format_cost(flight_cost, currency),
+        )
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric(
+            "Accommodation",
             _format_cost(hotel_cost, currency),
         )
 
+    with col2:
+        st.metric(
+            "Food",
+            _format_cost(food_cost, currency),
+        )
+
+    with col3:
+        st.metric(
+            "Local Transport",
+            _format_cost(transport_cost, currency),
+        )
+
     with col4:
-        if food_cost is not None and transport_cost is not None:
-            combined_cost = (
-                _safe_number(food_cost) + _safe_number(transport_cost)
-            )
-            combined_display = _format_cost(combined_cost, currency)
-        else:
-            combined_display = "Not available"
-
-        st.metric("Food & Transit", combined_display)
-
-    st.metric(
-        "Activities Estimate",
-        _format_cost(activities_cost, currency),
-    )
+        st.metric(
+            "Activities",
+            _format_cost(activities_cost, currency),
+        )
 
     if not comparison_available:
         st.warning(
             "This is a partial budget estimate. Some expense categories "
-            "are unavailable, so the total cannot be reliably compared "
-            "with your allocated budget."
+            "are unavailable. The known estimated cost excludes those "
+            "missing expenses and should not be treated as the final "
+            "trip cost."
         )
+
     elif breakdown.get("is_within_budget") is True:
-        st.success("Projected expenses are within your target budget!")
+        st.success(
+            "Your estimated trip expenses are within your allocated budget."
+        )
+
     elif breakdown.get("is_within_budget") is False:
         overrun = breakdown.get("overrun_amount")
 
         st.warning(
-            f"Projected expenses exceed the target budget by "
-            f"{_format_cost(overrun, currency)}. "
-            "Consider adjusting activities or lodging."
+            f"Your estimated trip expenses exceed your allocated budget "
+            f"by {_format_cost(overrun, currency)}. "
+            "Consider reducing accommodation or other expenses."
         )
+
     else:
         st.info("Budget comparison is currently unavailable.")
 

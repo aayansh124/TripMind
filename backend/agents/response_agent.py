@@ -31,6 +31,7 @@ async def run_response_agent(
     hotel_res: HotelResult | None = None,
     weather_res: WeatherResult | None = None,
     itinerary_days: list[DailyItinerary] | None = None,
+    itinerary_status: AgentStatus | None = None,
 ) -> TravelPlan:
     """Consolidate agent results and generate the final travel plan."""
 
@@ -129,6 +130,12 @@ async def run_response_agent(
             "A detailed day-by-day itinerary could not be generated."
         )
 
+    if itinerary_status != AgentStatus.SUCCESS:
+        warnings.append(
+            "Itinerary generation was partial or unavailable. "
+            "Review the daily plan before traveling."
+        )
+
     # Calculate the overall budget using deterministic Python arithmetic.
     budget_breakdown: BudgetBreakdown = calculate_budget_breakdown(
         user_budget=request.budget,
@@ -184,6 +191,7 @@ async def run_response_agent(
         flight_res.status if flight_res else AgentStatus.UNAVAILABLE,
         hotel_res.status if hotel_res else AgentStatus.UNAVAILABLE,
         weather_res.status if weather_res else AgentStatus.UNAVAILABLE,
+        itinerary_status or AgentStatus.UNAVAILABLE,
     ]
 
     if (

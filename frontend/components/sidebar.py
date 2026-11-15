@@ -23,19 +23,16 @@ def render_sidebar() -> str:
             "💬 Chat Assistant",
         ]
 
-        current_page = st.session_state.get(
-            "current_page",
-            "✨ New Trip",
-        )
+        if "navigation_page" not in st.session_state:
+            st.session_state["navigation_page"] = st.session_state.get(
+                "current_page",
+                "✨ New Trip",
+            )
 
         selected_page = st.radio(
             "Select View",
             options=pages,
-            index=(
-                pages.index(current_page)
-                if current_page in pages
-                else 0
-            ),
+            key="navigation_page",
             label_visibility="collapsed",
         )
 
@@ -58,6 +55,7 @@ def render_sidebar() -> str:
                 use_container_width=True,
             ):
                 clear_current_trip()
+                st.session_state["navigation_page"] = "✨ New Trip"
                 st.session_state["current_page"] = "✨ New Trip"
                 st.rerun()
 

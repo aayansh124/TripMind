@@ -11,11 +11,7 @@ def render_header() -> None:
         """
         <style>
             .main-header {
-                background: linear-gradient(
-                    135deg,
-                    #1E293B 0%,
-                    #0F172A 100%
-                );
+                background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
                 padding: 1.5rem 2rem;
                 border-radius: 12px;
                 color: #FFFFFF;
@@ -49,28 +45,25 @@ def render_header() -> None:
             }
 
             .header-subtitle {
-                color: #94A3B8;
+                color: #CBD5E1;
                 font-size: 0.95rem;
-                margin-top: 0.6rem;
+                margin-top: 0.8rem;
                 margin-bottom: 0;
+                line-height: 1.6;
             }
         </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
+    st.markdown(
+        """
         <div class="main-header">
             <div class="title-row">
-                <h1 class="brand-title">
-                    AI Multi-Agent Travel Planner
-                </h1>
-                <span class="brand-badge">
-                    LangGraph Multi-Agent System
-                </span>
+                <h1 class="brand-title">AI Multi-Agent Travel Planner</h1>
+                <span class="brand-badge">LangGraph Multi-Agent System</span>
             </div>
-
-            <p class="header-subtitle">
-                Discover destinations, explore flight options,
-                find accommodations, check weather, and generate
-                personalized itineraries with Google Gemini.
-            </p>
+            <p class="header-subtitle">Discover destinations, explore flight options, find accommodations, check weather, and generate personalized itineraries with Google Gemini.</p>
         </div>
         """,
         unsafe_allow_html=True,

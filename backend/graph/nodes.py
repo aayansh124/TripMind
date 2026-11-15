@@ -16,7 +16,6 @@ from backend.api.schemas.travel import (
     DestinationResult,
     FlightResult,
     HotelResult,
-    ItineraryResult,
     TravelPlan,
     TravelRequest,
     TravelStyle,
@@ -346,9 +345,36 @@ async def chat_node(state: TravelState) -> dict[str, Any]:
             ]
         )
 
+        content = response.content
+
+        if isinstance(content, str):
+            assistant_text = content
+
+        elif isinstance(content, list):
+            text_parts = []
+
+            for block in content:
+                if isinstance(block, str):
+                    text_parts.append(block)
+
+                elif isinstance(block, dict):
+                    if (
+                        block.get("type") == "text"
+                        and isinstance(block.get("text"), str)
+                    ):
+                        text_parts.append(block["text"])
+
+            assistant_text = "\n".join(text_parts)
+
+        else:
+            assistant_text = ""
+
+        if not assistant_text.strip():
+            raise ValueError("Gemini returned no readable text.")
+
         return {
             "messages": [
-                AIMessage(content=str(response.content))
+                AIMessage(content=assistant_text)
             ],
         }
 
