@@ -55,8 +55,9 @@ def render_sidebar() -> str:
                 use_container_width=True,
             ):
                 clear_current_trip()
-                st.session_state["navigation_page"] = "✨ New Trip"
-                st.session_state["current_page"] = "✨ New Trip"
+
+                # Apply navigation on the next run before the radio widget.
+                st.session_state["navigate_to_new_trip"] = True
                 st.rerun()
 
         st.divider()

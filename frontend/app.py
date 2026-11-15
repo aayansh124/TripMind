@@ -38,6 +38,11 @@ st.set_page_config(
 
 init_session_state()
 
+# Apply pending navigation before creating the sidebar radio widget.
+if st.session_state.pop("navigate_to_new_trip", False):
+    st.session_state["navigation_page"] = "✨ New Trip"
+    st.session_state["current_page"] = "✨ New Trip"
+
 render_header()
 selected_page = render_sidebar()
 
@@ -191,7 +196,10 @@ elif selected_page == "📜 Travel History":
 
                         if full_trip:
                             set_current_trip(full_trip)
-                            st.session_state["current_page"] = "✨ New Trip"
+
+                            # Navigation is applied at the start of
+                            # the next run, before the sidebar widget.
+                            st.session_state["navigate_to_new_trip"] = True
                             st.rerun()
                         else:
                             st.error("Unable to load this trip.")
