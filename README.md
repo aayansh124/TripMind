@@ -585,65 +585,7 @@ Post a follow-up conversational question maintaining LangGraph thread memory.
 
 **---**
 
-## 11. Automated Test Suite
-
-The test suite validates every layer: API endpoints, specialist agents, deterministic budget math, parallel workflow execution, and Redis cache fallbacks.
-
-Run the complete test suite:
-
-```powershell
-
-python -m pytest tests/ -v
-
-```
-
-Expected output:
-
-```
-
-tests\test_agents.py::test_destination_agent_fallback_on_llm_error PASSED
-
-tests\test_agents.py::test_flight_agent_with_mocked_results PASSED
-
-tests\test_agents.py::test_weather_agent_with_mocked_observation PASSED
-
-tests\test_agents.py::test_response_agent_consolidation PASSED
-
-tests\test_api.py::test_root_endpoint PASSED
-
-tests\test_api.py::test_health_endpoint PASSED
-
-tests\test_api.py::test_invalid_travel_dates PASSED
-
-tests\test_api.py::test_get_nonexistent_trip PASSED
-
-tests\test_cache.py::test_cache_miss_returns_none PASSED
-
-tests\test_cache.py::test_cache_hit_deserialization PASSED
-
-tests\test_cache.py::test_cache_set_with_ttl PASSED
-
-tests\test_cache.py::test_redis_unavailable_fallback PASSED
-
-tests\test_services.py::test_budget_within_limit PASSED
-
-tests\test_services.py::test_budget_overrun_detection PASSED
-
-tests\test_services.py::test_budget_with_custom_hotel_and_itinerary PASSED
-
-tests\test_workflow.py::test_full_graph_execution_success PASSED
-
-tests\test_workflow.py::test_workflow_partial_recovery_on_agent_failure PASSED
-
-tests\test_workflow.py::test_chat_turn_execution PASSED
-
-\============================== 18 passed in 12.10s ==============================
-
-```
-
-**---**
-
-## 12. Security & Operational Limitations
+## 11. Security & Operational Limitations
 
 ### Security Architecture
 
@@ -665,7 +607,7 @@ tests\test_workflow.py::test_chat_turn_execution PASSED
 
 **---**
 
-## 13. Future Roadmap
+## 12. Future Roadmap
 
 1. ****Direct Booking Integrations****: Add Amadeus/Sabre enterprise flight and GDS hotel booking engine adapters.
 
@@ -677,6 +619,6 @@ tests\test_workflow.py::test_chat_turn_execution PASSED
 
 **---**
 
-## 14. License
+## 13. License
 
 Distributed under the MIT License. See `LICENSE` for more information.
