@@ -224,8 +224,6 @@ travel_brain/
 ├── .env.example                     # Sample environment variables
 ├── .gitignore                       # Git ignore patterns
 ├── requirements.txt                 # Pinned dependency requirements
-├── run_backend.ps1                  # Windows PowerShell script to start backend
-├── run_frontend.ps1                 # Windows PowerShell script to start frontend
 └── README.md                        # Comprehensive project documentation
 ```
 
